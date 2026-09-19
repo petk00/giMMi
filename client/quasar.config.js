@@ -42,6 +42,11 @@ export default defineConfig((/* ctx */) => {
       // vueDevtools,
       // vueOptionsAPI: false,
 
+      env: {
+        // U devu ide kroz devServer.proxy (vidi ispod), u produkciji postavi API_BASE_URL
+        API_BASE_URL: process.env.API_BASE_URL || '/api',
+      },
+
       // rebuildCache: true, // rebuilds Vite/linter/etc cache on startup
 
       // publicPath: '/',
@@ -74,6 +79,14 @@ export default defineConfig((/* ctx */) => {
     devServer: {
       // https: true,
       open: true, // opens browser window automatically
+
+      // Sve /api pozive preusmjeri na node server iz /server
+      proxy: {
+        '/api': {
+          target: process.env.API_PROXY_TARGET || 'http://localhost:3000',
+          changeOrigin: true,
+        },
+      },
     },
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#framework

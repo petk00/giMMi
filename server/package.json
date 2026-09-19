@@ -1,0 +1,23 @@
+{
+  "name": "gimmi-server",
+  "version": "0.0.1",
+  "description": "giMMi - API server za nabavu, vodjenje nabave i troskova",
+  "author": "Igor Petkovic <igr.petkovic@gmail.com>",
+  "type": "module",
+  "private": true,
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch --env-file=.env src/index.js",
+    "start": "node src/index.js",
+    "test": "echo \"No test specified\" && exit 0"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "morgan": "^1.10.0",
+    "mysql2": "^3.24.4"
+  },
+  "engines": {
+    "node": ">= 20"
+  }
+}
