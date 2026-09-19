@@ -60,7 +60,7 @@ const health = ref(null)
 const users = ref([])
 const purchaseRequests = ref([])
 const fiscalYears = ref([])
-const departments = ref([])
+const departmentBudgets = ref([])
 const loading = ref(true)
 const error = ref(null)
 
@@ -91,21 +91,26 @@ const requestColumns = [
 
 const cards = computed(() => [
   { label: 'Fiskalne godine', value: fiscalYears.value.length },
-  { label: 'Odjeli', value: departments.value.length },
+  { label: 'Odjeli', value: departmentBudgets.value.length },
   { label: 'Korisnici', value: users.value.length },
   { label: 'Zahtjevi', value: purchaseRequests.value.length },
 ])
 
 onMounted(async () => {
   try {
-    ;[health.value, fiscalYears.value, departments.value, users.value, purchaseRequests.value] =
-      await Promise.all([
-        gimmiApi.getHealth(),
-        gimmiApi.getFiscalYears(),
-        gimmiApi.getDepartments(),
-        gimmiApi.getUsers(),
-        gimmiApi.getPurchaseRequests(),
-      ])
+    ;[
+      health.value,
+      fiscalYears.value,
+      departmentBudgets.value,
+      users.value,
+      purchaseRequests.value,
+    ] = await Promise.all([
+      gimmiApi.getHealth(),
+      gimmiApi.getFiscalYears(),
+      gimmiApi.getDepartmentBudgets(),
+      gimmiApi.getUsers(),
+      gimmiApi.getPurchaseRequests(),
+    ])
   } catch (err) {
     error.value = err.response?.data?.error ?? `API nije dostupan: ${err.message}`
   } finally {

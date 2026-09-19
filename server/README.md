@@ -27,9 +27,42 @@ Spajanje ide preko `mysql2` connection poola (`src/db.js`), parametri iz `.env`:
 | `DB_NAME` | `gimmi` |
 | `DB_POOL_LIMIT` | `10` |
 
-Sheme se ne generiraju iz koda - baza `gimmi` je rucno modelirana, server je
+Shema se ne generira iz koda - baza `gimmi` je rucno modelirana, server je
 samo cita i pise preko SQL-a. Svi upiti idu kroz `?` placeholdere
 (`query()` / `queryOne()`), nikad kroz konkatenaciju stringova.
+
+U `db/` se drzi shema:
+
+```
+db/schema.sql      # trenutno stanje sheme, izvezeno iz baze
+db/migrations/     # promjene sheme, kronoloski
+```
+
+Migracija se pokrece rucno: `mysql -u root gimmi < db/migrations/<ime>.sql`,
+a nakon toga se `db/schema.sql` ponovo izvozi:
+
+```bash
+mysqldump -u root --no-data --compact --skip-comments --set-gtid-purged=OFF \
+  --skip-add-drop-table gimmi | grep -v '^/\*!' | grep -v '^SET ' > db/schema.sql
+```
+
+### Konvencije imena
+
+| Element | Oblik | Primjer |
+| --- | --- | --- |
+| tablica | PascalCase, jednina | `PurchaseRequestItem` |
+| primarni kljuc | `id_<tablica>` | `id_purchase_request` |
+| strani kljuc | `fk_<entitet>` | `fk_department_budget` |
+| unique indeks | `uq_<tablica>_<kolone>` | `uq_fiscal_year_year` |
+| obicni indeks | `idx_<tablica>_<kolone>` | `idx_app_user_invite_token` |
+
+`AppUser` je jedina iznimka s prefiksom - `User` je rezervirana rijec u
+PostgreSQL-u, pa se izbjegava i ovdje; njezin PK ostaje `id_user`.
+
+`DepartmentBudget` i `ItemCategoryBudget` nisu odjel i kategorija nego njihov
+proracun za jednu fiskalnu godinu (unique po `(fk_fiscal_year, name)`).
+`PurchaseRequest` je slozenim stranim kljucem vezan na `(id_department_budget,
+fk_fiscal_year)`, pa ne moze pokazivati na proracun odjela iz druge godine.
 
 ## Endpointi
 
@@ -37,16 +70,19 @@ samo cita i pise preko SQL-a. Svi upiti idu kroz `?` placeholdere
 | --- | --- | --- |
 | GET | `/api/health` | status servera i ping baze (503 ako baza pada) |
 | GET | `/api/fiscal-years` | fiskalne godine s budzetom |
-| GET | `/api/departments?fiscalYear=` | odjeli s limitima |
-| GET | `/api/item-categories?fiscalYear=` | kategorije stavki s limitima |
-| GET | `/api/request-statuses` | statusi zahtjeva |
+| GET | `/api/department-budgets?fiscalYear=` | odjeli s limitima po godini |
+| GET | `/api/item-category-budgets?fiscalYear=` | kategorije stavki s limitima po godini |
+| GET | `/api/purchase-request-statuses` | statusi zahtjeva |
 | GET | `/api/users` | korisnici s rolom (bez `password_hash`) |
-| GET | `/api/purchase-requests?fiscalYear=&status=&department=` | lista zahtjeva |
+| GET | `/api/purchase-requests?fiscalYear=&status=&departmentBudget=` | lista zahtjeva |
 | GET | `/api/purchase-requests/:id` | zahtjev + stavke, povijest statusa i prilozi |
 
 ## Struktura
 
 ```
+db/
+  schema.sql                # trenutna shema
+  migrations/               # promjene sheme
 src/
   index.js                  # start servera, ping baze, graceful shutdown
   app.js                    # Express app, middleware, /api router

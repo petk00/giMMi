@@ -6,11 +6,13 @@ export const gimmiApi = {
 
   getFiscalYears: () => api.get('/fiscal-years').then((res) => res.data),
 
-  getDepartments: (params) => api.get('/departments', { params }).then((res) => res.data),
+  getDepartmentBudgets: (params) =>
+    api.get('/department-budgets', { params }).then((res) => res.data),
 
-  getItemCategories: (params) => api.get('/item-categories', { params }).then((res) => res.data),
+  getItemCategoryBudgets: (params) =>
+    api.get('/item-category-budgets', { params }).then((res) => res.data),
 
-  getRequestStatuses: () => api.get('/request-statuses').then((res) => res.data),
+  getPurchaseRequestStatuses: () => api.get('/purchase-request-statuses').then((res) => res.data),
 
   getUsers: () => api.get('/users').then((res) => res.data),
 

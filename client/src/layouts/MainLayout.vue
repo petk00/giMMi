@@ -1,12 +1,14 @@
 <template>
   <q-layout view="lHh Lpr lFf">
-    <q-header elevated>
+    <q-header elevated class="bg-white text-primary">
       <q-toolbar>
         <q-btn flat dense round icon="menu" aria-label="Menu" @click="toggleLeftDrawer" />
 
-        <q-toolbar-title> Quasar App </q-toolbar-title>
+        <q-toolbar-title class="row items-center">
+          <img alt="giMMi" src="~assets/gimmi-logo.jpg" class="gimmi-logo" />
+        </q-toolbar-title>
 
-        <div>Quasar v{{ $q.version }}</div>
+        <div class="text-caption text-grey-7">Quasar v{{ $q.version }}</div>
       </q-toolbar>
     </q-header>
 
@@ -79,3 +81,11 @@ function toggleLeftDrawer() {
   leftDrawerOpen.value = !leftDrawerOpen.value
 }
 </script>
+
+<style scoped>
+.gimmi-logo {
+  height: 34px;
+  width: auto;
+  display: block;
+}
+</style>
