@@ -2,22 +2,60 @@
   <q-layout view="lHh Lpr lFf">
     <q-header elevated class="bg-white text-primary">
       <q-toolbar>
-        <q-btn flat dense round icon="menu" aria-label="Menu" @click="toggleLeftDrawer" />
-
-        <q-toolbar-title class="row items-center">
+        <!-- logo otvara i zatvara ladicu -->
+        <q-btn
+          flat
+          dense
+          no-caps
+          aria-label="Prikaži ili sakrij izbornik"
+          class="q-mr-sm"
+          @click="toggleLeftDrawer"
+        >
           <img alt="giMMi" src="~assets/gimmi-logo.jpg" class="gimmi-logo" />
-        </q-toolbar-title>
+        </q-btn>
+
+        <q-toolbar-title class="text-subtitle1">{{ $route.meta.title }}</q-toolbar-title>
 
         <div class="text-caption text-grey-7">Quasar v{{ $q.version }}</div>
       </q-toolbar>
     </q-header>
 
-    <q-drawer v-model="leftDrawerOpen" show-if-above bordered>
-      <q-list>
-        <q-item-label header> Essential Links </q-item-label>
+    <q-drawer v-model="leftDrawerOpen" show-if-above bordered class="column no-wrap">
+      <q-list class="col scroll q-pt-sm">
+        <template v-for="section in menuSections" :key="section.label ?? 'glavno'">
+          <q-item-label v-if="section.label" header>{{ section.label }}</q-item-label>
 
-        <EssentialLink v-for="link in linksList" :key="link.title" v-bind="link" />
+          <q-item
+            v-for="item in section.items"
+            :key="item.to"
+            v-ripple
+            clickable
+            :to="item.to"
+            exact
+            active-class="text-primary"
+          >
+            <q-item-section avatar>
+              <q-icon :name="item.icon" />
+            </q-item-section>
+
+            <q-item-section>{{ item.title }}</q-item-section>
+          </q-item>
+        </template>
       </q-list>
+
+      <q-separator />
+
+      <!-- prijavljeni korisnik - staticki dok ne postoji prijava -->
+      <q-item class="q-py-md">
+        <q-item-section avatar>
+          <q-avatar size="36px" color="grey-3" text-color="grey-8" icon="person" />
+        </q-item-section>
+
+        <q-item-section>
+          <q-item-label class="text-weight-medium">{{ currentUser.name }}</q-item-label>
+          <q-item-label caption>{{ currentUser.role }}</q-item-label>
+        </q-item-section>
+      </q-item>
     </q-drawer>
 
     <q-page-container>
@@ -28,54 +66,55 @@
 
 <script setup>
 import { ref } from 'vue'
-import EssentialLink from 'components/EssentialLink.vue'
 
-const linksList = [
+const menuSections = [
   {
-    title: 'Docs',
-    caption: 'quasar.dev',
-    icon: 'school',
-    link: 'https://quasar.dev',
+    label: null,
+    items: [
+      { title: 'Moji zahtjevi', icon: 'assignment', to: '/zahtjevi' },
+      { title: 'Novi zahtjev', icon: 'add_circle_outline', to: '/zahtjevi/novi' },
+    ],
   },
   {
-    title: 'Github',
-    caption: 'github.com/quasarframework',
-    icon: 'code',
-    link: 'https://github.com/quasarframework',
+    label: 'Nabava',
+    items: [
+      { title: 'Zahtjevi', icon: 'fact_check', to: '/nabava/zahtjevi' },
+      { title: 'Narudžbe', icon: 'shopping_cart', to: '/narudzbe' },
+      { title: 'Katalog', icon: 'menu_book', to: '/katalog' },
+    ],
   },
   {
-    title: 'Discord Chat Channel',
-    caption: 'chat.quasar.dev',
-    icon: 'chat',
-    link: 'https://chat.quasar.dev',
+    label: 'Pomoć',
+    items: [
+      { title: 'Kako podnijeti zahtjev', icon: 'help_outline', to: '/pomoc/podnosenje-zahtjeva' },
+      { title: 'Kontakt računovodstva', icon: 'mail_outline', to: '/pomoc/kontakt' },
+    ],
   },
   {
-    title: 'Forum',
-    caption: 'forum.quasar.dev',
-    icon: 'record_voice_over',
-    link: 'https://forum.quasar.dev',
+    label: 'Financije',
+    items: [
+      { title: 'Kategorije', icon: 'category', to: '/kategorije' },
+      { title: 'Službe i projekti', icon: 'account_tree', to: '/sluzbe-i-projekti' },
+      { title: 'Knjiženja', icon: 'receipt_long', to: '/knjizenja' },
+    ],
   },
   {
-    title: 'Twitter',
-    caption: '@quasarframework',
-    icon: 'rss_feed',
-    link: 'https://twitter.quasar.dev',
+    label: 'Ostalo',
+    items: [
+      { title: 'Dobavljači', icon: 'local_shipping', to: '/dobavljaci' },
+      { title: 'Izvještaji', icon: 'bar_chart', to: '/izvjestaji' },
+    ],
   },
   {
-    title: 'Facebook',
-    caption: '@QuasarFramework',
-    icon: 'public',
-    link: 'https://facebook.quasar.dev',
-  },
-  {
-    title: 'Quasar Awesome',
-    caption: 'Community Quasar projects',
-    icon: 'favorite',
-    link: 'https://awesome.quasar.dev',
+    label: 'Administracija',
+    items: [{ title: 'Korisnici', icon: 'group', to: '/korisnici' }],
   },
 ]
 
-const leftDrawerOpen = ref(false)
+// Placeholder dok se ne napravi prijava; tada ide iz AppUser tablice.
+const currentUser = { name: 'Marija Novak', role: 'Operator' }
+
+const leftDrawerOpen = ref(true)
 
 function toggleLeftDrawer() {
   leftDrawerOpen.value = !leftDrawerOpen.value
@@ -84,7 +123,7 @@ function toggleLeftDrawer() {
 
 <style scoped>
 .gimmi-logo {
-  height: 34px;
+  height: 40px;
   width: auto;
   display: block;
 }
