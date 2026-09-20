@@ -14,9 +14,8 @@
     </q-header>
 
     <q-drawer v-model="leftDrawerOpen" show-if-above bordered class="column no-wrap">
-      <div class="q-pa-md">
+      <div class="drawer-header row items-center q-px-md">
         <img alt="giMMi" src="~assets/gimmi-logo.jpg" class="brand-logo" />
-        <div class="text-caption text-grey-7 q-mt-xs">Poslovna godina {{ fiscalYear }}.</div>
       </div>
 
       <q-separator />
@@ -119,9 +118,8 @@ const menuSections = [
     label: 'Nabava',
     roles: null,
     items: [
-      { title: 'Novi zahtjev', icon: 'note_add', to: '/zahtjevi/novi' },
       { title: 'Moji zahtjevi', icon: 'list', to: '/zahtjevi', count: 'submitted' },
-      { title: 'Nacrti', icon: 'folder_open', to: '/nacrti', count: 'drafts' },
+      { title: 'Novi zahtjev', icon: 'note_add', to: '/zahtjevi/novi' },
     ],
   },
   {
@@ -178,28 +176,17 @@ const initials = computed(() =>
     .join(''),
 )
 
-const fiscalYear = ref(new Date().getFullYear())
-const counts = ref({ submitted: 0, drafts: 0 })
+const counts = ref({ submitted: 0 })
 
 onMounted(async () => {
   try {
-    const [years, requests] = await Promise.all([
-      gimmiApi.getFiscalYears(),
-      gimmiApi.getMyPurchaseRequests(),
-    ])
-
-    const open = years.find((year) => year.is_closed === 0)
-
-    if (open) {
-      fiscalYear.value = open.year
-    }
+    const requests = await gimmiApi.getMyPurchaseRequests()
 
     counts.value = {
-      drafts: requests.filter((request) => request.status_code === 'DRAFT').length,
       submitted: requests.filter((request) => request.status_code !== 'DRAFT').length,
     }
   } catch {
-    // brojaci i godina su dodatak, izbornik radi i bez njih
+    // brojaci su dodatak, izbornik radi i bez njih
   }
 })
 
@@ -224,8 +211,14 @@ async function logout() {
 </script>
 
 <style scoped>
+/* Visina zaglavlja odredjuje gdje pada crta ispod logotipa; sadrzaj stranice
+   poravnava se na istu vrijednost (--gimmi-drawer-header u app.scss). */
+.drawer-header {
+  height: var(--gimmi-drawer-header);
+}
+
 .brand-logo {
-  height: 34px;
+  height: 36px;
   width: auto;
   display: block;
 }

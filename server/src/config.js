@@ -10,6 +10,14 @@ export const config = {
     ttl: process.env.JWT_TTL || '12h',
     ttlSeconds: Number(process.env.JWT_TTL_SECONDS) || 12 * 60 * 60,
   },
+  // lokalni model koji cita ponude (Ollama)
+  ollama: {
+    url: process.env.OLLAMA_URL || 'http://127.0.0.1:11434',
+    model: process.env.OLLAMA_MODEL || 'gemma4:e2b',
+    timeoutMs: Number(process.env.OLLAMA_TIMEOUT_MS) || 120000,
+    // sirina na koju se PDF renderira prije slanja modelu
+    renderWidth: Number(process.env.OFFER_RENDER_WIDTH) || 1700,
+  },
   // gdje se cuvaju prilozi i koliko smiju biti veliki
   uploadDir: process.env.UPLOAD_DIR || 'uploads',
   uploadMaxBytes: Number(process.env.UPLOAD_MAX_BYTES) || 10 * 1024 * 1024,

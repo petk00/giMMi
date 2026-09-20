@@ -12,6 +12,7 @@ import { purchaseRequestStatusesRouter } from './purchase-request-statuses.js'
 import { documentTypesRouter } from './document-types.js'
 import { usersRouter } from './users.js'
 import { purchaseRequestsRouter } from './purchase-requests.js'
+import { offersRouter } from './offers.js'
 
 export const apiRouter = Router()
 
@@ -29,3 +30,4 @@ apiRouter.use('/purchase-request-statuses', purchaseRequestStatusesRouter)
 apiRouter.use('/document-types', documentTypesRouter)
 apiRouter.use('/users', usersRouter)
 apiRouter.use('/purchase-requests', purchaseRequestsRouter)
+apiRouter.use('/offers', offersRouter)

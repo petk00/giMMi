@@ -8,6 +8,10 @@ import { assertTransitionAllowed, nextRequestNumber, WorkflowError } from '../wo
 
 export const purchaseRequestsRouter = Router()
 
+// Ista granica vrijedi i u sucelju (NewRequestPage), ovdje je zato sto
+// poziv na API ne mora doci kroz obrazac.
+const JUSTIFICATION_MAX_LENGTH = 500
+
 const listSql = `
   select pr.id_purchase_request, pr.request_number, pr.source,
          pr.net_amount, pr.vat_amount, pr.total_amount,
@@ -72,6 +76,12 @@ purchaseRequestsRouter.post('/', async (req, res) => {
 
   if (!departmentBudget) {
     return res.status(400).json({ error: 'Odaberite troskovno mjesto' })
+  }
+
+  if (justification !== null && justification.length > JUSTIFICATION_MAX_LENGTH) {
+    return res
+      .status(400)
+      .json({ error: `Svrha nabave smije imati najvise ${JUSTIFICATION_MAX_LENGTH} znakova` })
   }
 
   for (const item of items) {

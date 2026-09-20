@@ -235,7 +235,7 @@ const columns = [
 const requests = ref([])
 const loading = ref(true)
 const error = ref(null)
-// ruta moze odmah otvoriti odredjeni tab (npr. Nacrti iz izbornika)
+// ruta moze odmah otvoriti odredjeni tab (npr. /nacrti)
 const tab = ref(route.meta.tab ?? 'u-obradi')
 
 const visibleRequests = computed(() =>

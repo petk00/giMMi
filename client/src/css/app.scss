@@ -1,1 +1,19 @@
 // app global css in SCSS form
+
+// Crta ispod logotipa u ladici pada na ovoj visini, pa sadrzaj stranica krece
+// od iste linije.
+:root {
+  --gimmi-drawer-header: 60px;
+}
+
+// Ladica se vidi tek od md navise; na uzim ekranima vrijedi padding stranice.
+@media (min-width: 1024px) {
+  .q-page-container .q-page {
+    padding-top: var(--gimmi-drawer-header);
+  }
+
+  // Stranica s vlastitim zaglavljem sama popunjava tu traku.
+  .q-page-container .q-page.with-page-header {
+    padding-top: 0;
+  }
+}

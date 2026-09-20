@@ -30,6 +30,14 @@ export const gimmiApi = {
   getMyPurchaseRequests: () =>
     api.get('/purchase-requests', { params: { mine: 1 } }).then((res) => res.data),
 
+  // ponuda se cita prije nego zahtjev postoji, pa ide na zasebnu rutu
+  readOffer: (file) => {
+    const form = new FormData()
+    form.append('file', file)
+
+    return api.post('/offers/read', form).then((res) => res.data)
+  },
+
   createPurchaseRequest: (payload) =>
     api.post('/purchase-requests', payload).then((res) => res.data),
 

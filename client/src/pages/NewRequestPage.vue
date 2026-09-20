@@ -1,181 +1,217 @@
 <template>
-  <q-page class="bg-grey-2">
-    <div class="q-pa-lg">
-      <!-- bez ponude nema sto ocitati, pa je prijenos jedino sto se nudi -->
-      <q-card v-if="offerFile === null" flat bordered>
-        <q-card-section class="dropzone column flex-center q-pa-xl q-ma-md">
-          <q-icon name="cloud_upload" size="44px" color="grey-6" />
+  <q-page class="bg-grey-2 with-page-header">
+    <!-- Zaglavlje stoji u traci logotipa, ali bez vlastite pozadine i crte -
+         blokovi ispod pocinju tocno na visini crte iz ladice. -->
+    <div class="page-header row items-center no-wrap q-px-lg">
+      <div class="col row items-center q-gutter-sm text-body2 text-grey-7 ellipsis">
+        <span>{{ auth.fullName }}</span>
+        <span>·</span>
+        <span>{{ today }}</span>
+        <span>·</span>
+        <span>poslovna godina {{ fiscalYear }}</span>
+        <q-chip dense square color="grey-3" text-color="grey-8" label="nacrt" class="meta-chip" />
+        <span>·</span>
+        <span>broj se dodjeljuje pri spremanju</span>
+      </div>
 
-          <div class="text-subtitle1 q-mt-md">Priložite ponudu dobavljača</div>
-          <div class="text-body2 text-grey-7 text-center">
-            Prijenos povlačenjem ili slikanjem mobitelom; dopušteni PDF, JPG, PNG
-          </div>
+      <q-btn flat dense no-caps color="grey-7" icon="close" label="Odustani" @click="cancel" />
+    </div>
 
-          <q-file
-            v-model="offerFile"
-            outlined
-            dense
-            class="q-mt-lg"
-            style="max-width: 320px; width: 100%"
-            label="Odaberite datoteku"
-            accept=".pdf,image/jpeg,image/png"
-          >
-            <template #prepend>
-              <q-icon name="attach_file" />
-            </template>
-          </q-file>
-        </q-card-section>
-      </q-card>
-
-      <!-- ovdje ce ici poziv na ocitavanje ponude -->
-      <q-card v-else-if="reading" flat bordered>
-        <q-card-section class="column flex-center q-pa-xl q-gutter-md">
-          <q-spinner color="primary" size="42px" />
-          <div class="text-body2 text-grey-7">Očitavam ponudu...</div>
-        </q-card-section>
-      </q-card>
-
-      <div v-else class="row q-col-gutter-md">
+    <div class="q-px-lg q-pb-lg">
+      <div class="row q-col-gutter-md">
         <div class="col-12 col-md-8">
-          <!-- 1. ponuda -->
+          <!-- obrazlozenje: sto zahtjev trazi i na ciji trosak -->
+          <q-card flat bordered class="q-mb-md">
+            <!-- svrha lijevo, trosak i napomena desno -->
+            <q-card-section class="row q-col-gutter-md">
+              <div class="col-12 col-md-6 column">
+                <!-- brojac stoji uz oznaku, da polje moze do dna stupca -->
+                <div class="row items-baseline q-mb-xs">
+                  <div class="field-label col">Svrha nabave</div>
+                  <div class="text-caption text-grey-7">
+                    {{ justification.length }} / 500 znakova
+                  </div>
+                </div>
+
+                <q-input
+                  v-model="justification"
+                  outlined
+                  type="textarea"
+                  maxlength="500"
+                  class="col purpose-field"
+                  placeholder="Za koga je, zašto je potrebno i do kada treba stići."
+                />
+              </div>
+
+              <div class="col-12 col-md-6">
+                <div class="field-label q-mb-xs">Služba ili projekt</div>
+                <q-select
+                  v-model="costCentre"
+                  outlined
+                  label="Odaberite"
+                  :options="costCentreOptions"
+                  option-label="label"
+                  option-value="id_department_budget"
+                  :loading="loadingCostCentres"
+                />
+
+                <div class="field-label q-mb-xs q-mt-md">
+                  Napomena operateru
+                  <span class="text-body2 text-grey-7 text-weight-regular">(nije obavezno)</span>
+                </div>
+                <q-input
+                  v-model="note"
+                  outlined
+                  placeholder="npr. hitno, zamjena za pokvareno računalo"
+                />
+              </div>
+            </q-card-section>
+          </q-card>
+
+          <!-- ponuda: jedini ulaz su drag&drop ili klik, ostalo cita model -->
           <q-card flat bordered class="q-mb-md">
             <q-card-section class="row items-center q-gutter-sm card-title q-pb-sm">
-              <q-avatar size="26px" color="green-8" text-color="white" class="step-badge">
-                1
-              </q-avatar>
               <div class="text-subtitle1 text-weight-bold">Ponuda</div>
-              <div class="text-body2 text-grey-7">izvor svih podataka ispod</div>
+              <div class="text-body2 text-grey-7">{{ offerHint }}</div>
             </q-card-section>
 
             <q-card-section class="q-pt-none">
-              <div class="file-row row items-center q-col-gutter-md q-pa-md">
-                <div class="col row items-center no-wrap q-gutter-md">
+              <q-file
+                ref="offerPicker"
+                v-model="offerFile"
+                class="hidden"
+                accept=".pdf,image/jpeg,image/png"
+              />
+
+              <div
+                v-if="offerFile === null"
+                class="dropzone column flex-center q-pa-xl cursor-pointer"
+                :class="{ 'dropzone--over': dragOver }"
+                @click="pickOffer"
+                @dragenter.prevent="dragOver = true"
+                @dragover.prevent="dragOver = true"
+                @dragleave.prevent="dragOver = false"
+                @drop.prevent="dropOffer"
+              >
+                <q-icon name="cloud_upload" size="44px" color="grey-6" />
+
+                <div class="text-subtitle1 q-mt-sm">Povucite ponudu ovdje ili kliknite</div>
+                <div class="text-body2 text-grey-7 text-center">
+                  PDF, JPG ili PNG; model sam čita dobavljača, stavke i cijene
+                </div>
+              </div>
+
+              <template v-else>
+                <div class="file-row row items-center no-wrap q-gutter-md q-pa-md">
                   <q-avatar square size="40px" class="file-icon">
                     <q-icon :name="offerIcon" size="22px" color="grey-7" />
                   </q-avatar>
 
                   <div class="col ellipsis">
                     <div class="row items-baseline q-gutter-sm">
-                      <span class="text-weight-bold">{{ supplier.name }}</span>
-                      <span class="text-body2 text-grey-8">ponuda {{ supplier.offerNumber }}</span>
+                      <span class="text-weight-bold ellipsis">
+                        {{ supplier?.name || offerFile.name }}
+                      </span>
+                      <span v-if="supplier?.offerNumber" class="text-body2 text-grey-8">
+                        ponuda {{ supplier.offerNumber }}
+                      </span>
                     </div>
 
-                    <div class="text-caption text-grey-7 ellipsis">
-                      OIB {{ supplier.oib }} · {{ offerMeta }}
-                    </div>
+                    <div class="text-caption text-grey-7 ellipsis">{{ offerMeta }}</div>
 
-                    <div class="row items-center q-gutter-xs q-mt-xs">
+                    <div v-if="supplier !== null" class="row items-center q-gutter-xs q-mt-xs">
                       <q-chip
+                        v-if="supplier.oib"
                         dense
                         square
-                        :color="validityExpired ? 'red-1' : 'orange-1'"
-                        :text-color="validityExpired ? 'red-9' : 'orange-9'"
+                        color="grey-3"
+                        text-color="grey-8"
+                        class="meta-chip"
+                        :label="`OIB ${supplier.oib}`"
+                      />
+                      <q-chip
+                        v-if="supplier.validUntil"
+                        dense
+                        square
+                        color="orange-1"
+                        text-color="orange-9"
                         icon="schedule"
                         class="meta-chip"
-                        :label="validityExpired ? 'Ponuda je istekla' : `Vrijedi ${validityLabel}`"
+                        :label="`vrijedi do ${supplier.validUntil}`"
                       />
-
-                      <!-- placeholder: provjera je li ponuda vec koristena -->
                       <q-chip
                         dense
                         square
-                        color="green-1"
-                        text-color="green-9"
-                        icon="check"
+                        color="blue-1"
+                        text-color="blue-9"
+                        icon="auto_awesome"
                         class="meta-chip"
-                        label="nije ranije korištena"
+                        :label="readLabel"
                       />
                     </div>
                   </div>
+
+                  <div class="col-auto row items-center q-gutter-sm">
+                    <q-btn
+                      outline
+                      no-caps
+                      color="primary"
+                      icon="visibility"
+                      label="Pregledaj"
+                      @click="preview"
+                    />
+                    <q-btn
+                      v-if="!reading"
+                      flat
+                      dense
+                      no-caps
+                      color="grey-7"
+                      icon="refresh"
+                      label="Očitaj ponovno"
+                      @click="runReading"
+                    />
+                    <q-btn
+                      flat
+                      dense
+                      no-caps
+                      color="grey-7"
+                      icon="close"
+                      label="Ukloni"
+                      @click="removeOffer"
+                    />
+                  </div>
                 </div>
 
-                <!-- pregled je cesta radnja, zamjena rijetka i brise ocitano -->
-                <div class="col-auto row items-center q-gutter-sm">
-                  <q-btn
-                    outline
-                    no-caps
-                    color="primary"
-                    icon="visibility"
-                    label="Pregledaj"
-                    @click="preview"
-                  />
-                  <q-btn
-                    flat
-                    dense
-                    no-caps
-                    color="grey-7"
-                    icon="cached"
-                    label="Zamijeni"
-                    @click="replaceOffer"
-                  />
+                <div v-if="reading" class="row items-center q-gutter-md q-px-md q-mt-sm">
+                  <q-spinner color="primary" size="22px" />
+                  <span class="text-body2 text-grey-7">Model čita ponudu...</span>
                 </div>
-              </div>
 
-              <!-- usporedne ponude drugih dobavljaca -->
-              <q-file
-                ref="extraOfferPicker"
-                v-model="pickedExtraOffer"
-                multiple
-                class="hidden"
-                accept=".pdf,image/jpeg,image/png"
-              />
+                <q-banner v-else-if="readError" dense class="bg-red-1 text-grey-9 q-mt-sm">
+                  <template #avatar>
+                    <q-icon name="error_outline" color="red-9" />
+                  </template>
 
-              <div
-                v-for="(file, index) in extraOffers"
-                :key="index"
-                class="extra-offer row items-center no-wrap q-gutter-md q-px-md q-py-sm q-mt-sm"
-              >
-                <q-icon name="description" size="20px" color="grey-7" />
-                <div class="col ellipsis">
-                  <span class="text-body2">{{ file.name }}</span>
-                  <span class="text-caption text-grey-7"> · usporedna ponuda</span>
-                </div>
-                <q-btn
-                  flat
-                  dense
-                  round
-                  size="sm"
-                  icon="close"
-                  color="grey-7"
-                  @click="extraOffers.splice(index, 1)"
-                />
-              </div>
-
-              <q-btn
-                flat
-                dense
-                no-caps
-                color="primary"
-                icon="add"
-                label="Dodaj usporednu ponudu"
-                class="q-mt-sm"
-                @click="pickExtraOffer"
-              />
+                  {{ readError }}
+                </q-banner>
+              </template>
             </q-card-section>
           </q-card>
 
-          <!-- 2. stavke -->
-          <q-card flat bordered class="q-mb-md">
-            <q-card-section class="row items-center justify-between q-pb-none">
-              <div class="row items-center q-gutter-sm">
-                <q-avatar size="26px" color="green-8" text-color="white" class="step-badge">
-                  2
-                </q-avatar>
-                <div class="text-subtitle1 text-weight-bold">Stavke</div>
-                <q-chip dense square color="blue-1" text-color="blue-9" icon="auto_awesome">
-                  {{ items.length }} očitane iz ponude
-                </q-chip>
-              </div>
-
-              <!-- placeholder: ponovno ocitavanje iste datoteke -->
-              <q-btn
-                outline
-                no-caps
-                color="grey-8"
-                icon="refresh"
-                label="Očitaj ponovno"
-                @click="rereadOffer"
-              />
+          <!-- stavke: blok postoji tek kad model nesto izvuce iz ponude -->
+          <q-card v-if="items.length > 0" flat bordered>
+            <q-card-section class="row items-center q-gutter-sm q-pb-none">
+              <div class="text-subtitle1 text-weight-bold">Stavke</div>
+              <q-chip
+                v-if="offerItemCount > 0"
+                dense
+                square
+                color="blue-1"
+                text-color="blue-9"
+                icon="auto_awesome"
+              >
+                {{ offerItemCount }} očitano iz ponude
+              </q-chip>
             </q-card-section>
 
             <q-card-section class="text-body2 text-grey-7 q-py-sm">
@@ -243,36 +279,11 @@
                       :options="categoryOptions"
                       option-label="label"
                       :loading="loadingCategories"
+                      label="Odaberite"
                       style="min-width: 260px"
-                      @update:model-value="item.categoryConfirmed = true"
                     />
                   </div>
                 </div>
-
-                <!-- placeholder: ocitavanje jos ne vraca pouzdanost prijedloga -->
-                <q-banner
-                  v-if="item.lowConfidence && !item.categoryConfirmed"
-                  dense
-                  class="bg-orange-1 text-grey-9 q-mt-md"
-                >
-                  <template #avatar>
-                    <q-icon name="warning" color="orange-9" />
-                  </template>
-
-                  Kategoriju je predložio model s niskom sigurnošću. Provjeri konto ili odaberi
-                  drugu kategoriju.
-
-                  <template #action>
-                    <q-btn
-                      outline
-                      dense
-                      no-caps
-                      color="grey-8"
-                      label="Točno je"
-                      @click="item.categoryConfirmed = true"
-                    />
-                  </template>
-                </q-banner>
               </div>
 
               <q-btn
@@ -293,7 +304,16 @@
                 <div class="row items-center q-gutter-sm">
                   <span class="text-grey-8">Osnovica</span>
                   <q-chip
-                    v-if="matchesOffer"
+                    v-if="supplier === null"
+                    dense
+                    square
+                    color="grey-3"
+                    text-color="grey-8"
+                    label="nema ponude za usporedbu"
+                    class="meta-chip"
+                  />
+                  <q-chip
+                    v-else-if="matchesOffer"
                     dense
                     square
                     color="green-1"
@@ -326,60 +346,6 @@
               <div class="row items-center justify-between text-weight-bold text-h6">
                 <span>Ukupno s PDV-om</span>
                 <span class="num">{{ money(grossTotal) }}</span>
-              </div>
-            </q-card-section>
-          </q-card>
-
-          <!-- 3. obrazlozenje -->
-          <q-card flat bordered>
-            <q-card-section class="row items-center q-gutter-sm q-pb-sm">
-              <q-avatar size="26px" color="grey-5" text-color="white" class="step-badge">
-                3
-              </q-avatar>
-              <div class="text-subtitle1 text-weight-bold">Obrazloženje i trošak</div>
-              <div class="text-body2 text-grey-7">ovo čita osoba koja odobrava</div>
-            </q-card-section>
-
-            <q-card-section class="q-pt-none">
-              <div class="text-body2 q-mb-xs">Svrha nabave</div>
-              <q-input
-                v-model="justification"
-                outlined
-                type="textarea"
-                rows="4"
-                maxlength="1000"
-                placeholder="Za koga je, zašto je potrebno i do kada treba stići."
-              />
-              <div class="text-caption text-grey-7 q-mt-xs">
-                {{ justification.length }} / 1000 znakova
-              </div>
-
-              <div class="row q-col-gutter-md q-mt-sm">
-                <div class="col-12 col-sm-6">
-                  <div class="text-body2 q-mb-xs">Služba ili projekt</div>
-                  <q-select
-                    v-model="costCentre"
-                    outlined
-                    dense
-                    label="Odaberite"
-                    :options="costCentreOptions"
-                    option-label="label"
-                    option-value="id_department_budget"
-                    :loading="loadingCostCentres"
-                  />
-                </div>
-
-                <div class="col-12 col-sm-6">
-                  <div class="text-body2 q-mb-xs">
-                    Napomena operateru <span class="text-grey-7">(nije obavezno)</span>
-                  </div>
-                  <q-input
-                    v-model="note"
-                    outlined
-                    dense
-                    placeholder="npr. hitno, zamjena za pokvareno računalo"
-                  />
-                </div>
               </div>
             </q-card-section>
           </q-card>
@@ -488,23 +454,41 @@ import { useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
 
 import { gimmiApi } from 'src/services/gimmi-api'
+import { useAuthStore } from 'src/stores/auth'
 
 const $q = useQuasar()
 const router = useRouter()
+const auth = useAuthStore()
 
 const currencyFormat = new Intl.NumberFormat('hr-HR', { style: 'currency', currency: 'EUR' })
+
+const dateFormat = new Intl.DateTimeFormat('hr-HR', {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+})
+
+// Broj zahtjeva i datum podnosenja dodjeljuje server, pa ih ovdje jos nema.
+const fiscalYear = ref(new Date().getFullYear())
+
+const today = dateFormat.format(new Date())
 
 function money(value) {
   return currencyFormat.format(value ?? 0)
 }
 
 const offerFile = ref(null)
+const offerPicker = ref(null)
+const dragOver = ref(false)
+
 const reading = ref(false)
+const readError = ref(null)
+const readTookMs = ref(0)
 
 // Datoteka se otvara u novoj kartici; objectURL se mora osloboditi.
 const offerUrl = ref(null)
 
-let readingTimer = null
+const acceptedTypes = new Set(['application/pdf', 'image/jpeg', 'image/png'])
 
 function releaseUrl() {
   if (offerUrl.value !== null) {
@@ -513,12 +497,81 @@ function releaseUrl() {
   }
 }
 
-function startReading() {
-  // ovdje ce ici pravo ocitavanje ponude
+function pickOffer() {
+  offerPicker.value?.pickFiles()
+}
+
+function dropOffer(event) {
+  dragOver.value = false
+
+  const [file] = event.dataTransfer?.files ?? []
+
+  if (!file) {
+    return
+  }
+
+  if (!acceptedTypes.has(file.type)) {
+    $q.notify({ type: 'warning', message: 'Ponuda mora biti PDF, JPG ili PNG.' })
+    return
+  }
+
+  offerFile.value = file
+}
+
+function removeOffer() {
+  offerFile.value = null
+  supplier.value = null
+  offerNetTotal.value = 0
+  readError.value = null
+  items.value = items.value.filter((item) => !item.fromOffer)
+}
+
+function preview() {
+  if (offerUrl.value !== null) {
+    window.open(offerUrl.value, '_blank')
+  }
+}
+
+/**
+ * Ponudu cita lokalni model preko servera. Rezultat je prijedlog: stavke
+ * zamjenjuju ranije ocitane, a ono sto je podnositelj dodao rucno ostaje.
+ */
+async function runReading() {
+  if (offerFile.value === null || reading.value) {
+    return
+  }
+
   reading.value = true
-  readingTimer = setTimeout(() => {
+  readError.value = null
+
+  try {
+    const result = await gimmiApi.readOffer(offerFile.value)
+
+    supplier.value = result.supplier
+    offerNetTotal.value = result.netTotal ?? 0
+    readTookMs.value = result.tookMs ?? 0
+
+    items.value = [
+      ...result.items.map((item) => ({
+        name: item.name,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        // model ne predlaze kategoriju, nju bira podnositelj
+        category: null,
+        source: 'iz ponude',
+        fromOffer: true,
+      })),
+      ...items.value.filter((item) => !item.fromOffer),
+    ]
+
+    if (result.items.length === 0) {
+      readError.value = 'Model nije prepoznao nijednu stavku. Provjeri ponudu ili dodaj ručno.'
+    }
+  } catch (err) {
+    readError.value = err.response?.data?.error ?? `Očitavanje nije uspjelo: ${err.message}`
+  } finally {
     reading.value = false
-  }, 2000)
+  }
 }
 
 watch(offerFile, (file) => {
@@ -529,30 +582,25 @@ watch(offerFile, (file) => {
   }
 
   offerUrl.value = URL.createObjectURL(file)
-  startReading()
+  runReading()
 })
 
-onBeforeUnmount(() => {
-  clearTimeout(readingTimer)
-  releaseUrl()
-})
-
-function replaceOffer() {
-  offerFile.value = null
-}
-
-function rereadOffer() {
-  startReading()
-}
-
-function preview() {
-  if (offerUrl.value !== null) {
-    window.open(offerUrl.value, '_blank')
-  }
-}
+onBeforeUnmount(releaseUrl)
 
 const offerIcon = computed(() =>
   offerFile.value?.type?.startsWith('image/') ? 'image' : 'picture_as_pdf',
+)
+
+const offerHint = computed(() => {
+  if (offerFile.value === null) {
+    return 'iz nje se popunjavaju stavke'
+  }
+
+  return reading.value ? 'očitavam...' : 'izvor stavki ispod'
+})
+
+const readLabel = computed(() =>
+  readTookMs.value > 0 ? `očitano u ${(readTookMs.value / 1000).toFixed(1)} s` : 'očitano modelom',
 )
 
 const offerMeta = computed(() => {
@@ -561,90 +609,35 @@ const offerMeta = computed(() => {
   }
 
   const kind = offerFile.value.type === 'application/pdf' ? 'PDF' : 'slika'
-  const time = new Date().toLocaleTimeString('hr-HR', { hour: '2-digit', minute: '2-digit' })
 
-  return `${kind}, ${Math.round(offerFile.value.size / 1024)} kB · učitano danas u ${time}`
+  return `${offerFile.value.name} · ${kind}, ${Math.round(offerFile.value.size / 1024)} kB`
 })
 
-// usporedne ponude drugih dobavljaca za istu nabavu
-const extraOffers = ref([])
-const extraOfferPicker = ref(null)
-const pickedExtraOffer = ref(null)
-
-function pickExtraOffer() {
-  extraOfferPicker.value?.pickFiles()
-}
-
-watch(pickedExtraOffer, (files) => {
-  if (!files?.length) {
-    return
-  }
-
-  extraOffers.value.push(...files)
-  pickedExtraOffer.value = null
-})
-
-// Placeholder podaci - ocitavanje ponude jos ne postoji.
-const supplier = ref({
-  name: 'Links d.o.o.',
-  oib: '12345678901',
-  offerNumber: 'P-4471/2026',
-  validUntilDate: '2026-09-30',
-})
-
-const validityExpired = computed(() => new Date(supplier.value.validUntilDate) < new Date())
-
-const validityLabel = computed(() => {
-  const days = Math.ceil((new Date(supplier.value.validUntilDate) - new Date()) / 86400000)
-
-  if (days <= 0) {
-    return 'isteklo'
-  }
-
-  return days === 1 ? 'još 1 dan' : `još ${days} dana`
-})
+// Podaci o dobavljacu dolaze iz ocitavanja, pa ih prije njega nema.
+const supplier = ref(null)
 
 const categoryOptions = ref([])
 const loadingCategories = ref(false)
 
-const items = ref([
-  {
-    name: 'Prijenosno računalo 14", 16 GB / 512 GB',
-    quantity: 1,
-    unitPrice: 999.2,
-    category: null,
-    source: 'ponuda, red 1',
-    lowConfidence: false,
-    categoryConfirmed: true,
-  },
-  {
-    name: 'Docking stanica USB-C',
-    quantity: 1,
-    unitPrice: 160,
-    category: null,
-    source: 'ponuda, red 2',
-    // placeholder: ocitavanje jos ne vraca pouzdanost prijedloga
-    lowConfidence: true,
-    categoryConfirmed: false,
-  },
-])
+const items = ref([])
+
+const offerItemCount = computed(() => items.value.filter((item) => item.fromOffer).length)
 
 function addItem() {
   items.value.push({
     name: 'Nova stavka',
     quantity: 1,
     unitPrice: 0,
-    category: categoryOptions.value[0] ?? null,
+    category: null,
     source: 'dodano ručno',
-    lowConfidence: false,
-    categoryConfirmed: true,
+    fromOffer: false,
   })
 }
 
 const vatRate = 25
 
 // Iznos zahtjeva slijedi stavke; iznos s ponude sluzi samo za provjeru.
-const offerNetTotal = ref(1159.2)
+const offerNetTotal = ref(0)
 
 const itemsTotal = computed(() =>
   items.value.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
@@ -653,7 +646,9 @@ const itemsTotal = computed(() =>
 const vatAmount = computed(() => (itemsTotal.value * vatRate) / 100)
 const grossTotal = computed(() => itemsTotal.value + vatAmount.value)
 
-const matchesOffer = computed(() => Math.abs(itemsTotal.value - offerNetTotal.value) < 0.01)
+const matchesOffer = computed(
+  () => supplier.value !== null && Math.abs(itemsTotal.value - offerNetTotal.value) < 0.01,
+)
 
 const justification = ref('')
 const note = ref('')
@@ -670,27 +665,49 @@ const costCentreOptions = ref([])
 const loadingCostCentres = ref(false)
 
 const uncheckedCategories = computed(
-  () => items.value.filter((item) => item.category === null || !item.categoryConfirmed).length,
+  () => items.value.filter((item) => item.category === null).length,
 )
+
+const categoriesDetail = computed(() => {
+  if (items.value.length === 0) {
+    return 'još nema stavki'
+  }
+
+  return uncheckedCategories.value === 0
+    ? 'sve stavke imaju kategoriju'
+    : `${uncheckedCategories.value} stavka čeka kategoriju`
+})
 
 const checklist = computed(() => [
   {
     label: 'Ponuda priložena',
-    detail: `${supplier.value.offerNumber} · vrijedi ${validityLabel.value}`,
+    detail:
+      offerFile.value === null
+        ? 'bez nje zahtjev se ne može podnijeti'
+        : (supplier.value?.name ?? offerFile.value.name),
     done: offerFile.value !== null,
   },
   {
-    label: 'Zbroj stavki odgovara ponudi',
-    detail: `${money(itemsTotal.value)} bez PDV-a`,
+    label: 'Stavke očitane iz ponude',
+    detail:
+      items.value.length === 0
+        ? 'čekaju priloženu ponudu'
+        : `${items.value.length} stavki · ${money(itemsTotal.value)} bez PDV-a`,
+    done: items.value.length > 0,
+  },
+  {
+    label: 'Zbroj odgovara iznosu na ponudi',
+    detail:
+      offerNetTotal.value > 0
+        ? `na ponudi ${money(offerNetTotal.value)}`
+        : 'nema iznosa za usporedbu',
     done: matchesOffer.value,
   },
   {
     label: 'Kategorije provjerene',
-    detail:
-      uncheckedCategories.value === 0
-        ? 'sve stavke imaju potvrđenu kategoriju'
-        : `${uncheckedCategories.value} stavka čeka potvrdu`,
-    done: uncheckedCategories.value === 0,
+    detail: categoriesDetail.value,
+    // prazan popis stavki nije provjeren popis
+    done: items.value.length > 0 && uncheckedCategories.value === 0,
   },
   {
     label: 'Svrha nabave',
@@ -704,8 +721,25 @@ const checklist = computed(() => [
   },
 ])
 
+const hasInput = computed(
+  () =>
+    offerFile.value !== null ||
+    items.value.length > 0 ||
+    justification.value.trim().length > 0 ||
+    note.value.trim().length > 0 ||
+    costCentre.value !== null,
+)
+
 const missing = computed(() => {
   const fields = []
+
+  if (offerFile.value === null) {
+    fields.push('ponuda')
+  }
+
+  if (items.value.length === 0) {
+    fields.push('stavke')
+  }
 
   if (uncheckedCategories.value > 0) {
     fields.push('kategorija')
@@ -734,10 +768,17 @@ onMounted(async () => {
   loadingCategories.value = true
 
   try {
-    const [budgets, categories] = await Promise.all([
+    const [budgets, categories, years] = await Promise.all([
       gimmiApi.getDepartmentBudgets(),
       gimmiApi.getItemCategoryBudgets(),
+      gimmiApi.getFiscalYears(),
     ])
+
+    const openYear = years.find((year) => year.is_closed === 0)
+
+    if (openYear) {
+      fiscalYear.value = openYear.year
+    }
 
     costCentreOptions.value = budgets.map((budget) => ({
       ...budget,
@@ -750,11 +791,6 @@ onMounted(async () => {
         ? `${category.name} · konto ${accountCodes[category.name]}`
         : category.name,
     }))
-
-    // ocitavanje ponude zasad predlaze prvu kategoriju
-    for (const item of items.value) {
-      item.category ??= categoryOptions.value[0] ?? null
-    }
   } catch (err) {
     $q.notify({
       type: 'negative',
@@ -796,10 +832,8 @@ async function create({ andSubmit }) {
     const id = request.id_purchase_request
 
     // ponuda je uvjet za podnosenje, pa ide odmah uz nacrt
-    await gimmiApi.addAttachment(id, offerFile.value, 'OFFER')
-
-    for (const file of extraOffers.value) {
-      await gimmiApi.addAttachment(id, file, 'OTHER')
+    if (offerFile.value !== null) {
+      await gimmiApi.addAttachment(id, offerFile.value, 'OFFER')
     }
 
     if (andSubmit) {
@@ -837,30 +871,71 @@ function submit() {
   create({ andSubmit: true })
 }
 
-function discard() {
+function confirmLeave(title, onOk) {
   $q.dialog({
-    title: 'Odbaci nacrt',
+    title,
     message: 'Uneseni podaci neće biti spremljeni. Nastaviti?',
     cancel: { flat: true, noCaps: true, label: 'Odustani' },
     ok: { unelevated: true, noCaps: true, color: 'negative', label: 'Odbaci' },
-  }).onOk(() => router.push('/zahtjevi'))
+  }).onOk(onOk)
+}
+
+function discard() {
+  confirmLeave('Odbaci nacrt', () => router.push('/zahtjevi'))
+}
+
+// Prazan obrazac nema sto izgubiti, pa odustajanje tada ide bez pitanja.
+function cancel() {
+  if (!hasInput.value) {
+    router.push('/zahtjevi')
+    return
+  }
+
+  discard()
 }
 </script>
 
 <style scoped>
+/* Svrha nabave se rasteze do dna stupca, da bude visoka kao sluzba i napomena
+   pored nje; na uskom ekranu, gdje se stupci slazu, vrijedi min-height. */
+.purpose-field {
+  min-height: 120px;
+}
+
+.purpose-field :deep(.q-field__control),
+.purpose-field :deep(.q-field__native) {
+  height: 100%;
+}
+
+/* svako polje za unos nosi istaknutu oznaku */
+.field-label {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+/* ista visina kao zaglavlje ladice, pa blokovi krecu u ravnini s njezinom crtom */
+.page-header {
+  height: var(--gimmi-drawer-header);
+}
+
 .dropzone {
   border: 1px dashed rgba(0, 0, 0, 0.25);
   border-radius: 8px;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+/* povlacenje preko zone mora se vidjeti, inace nije jasno da ce pasti unutra */
+.dropzone--over {
+  border-color: var(--q-primary);
+  background: rgba(25, 118, 210, 0.06);
 }
 
 /* zaglavlja kartica u oba stupca imaju istu visinu */
 .card-title {
   min-height: 56px;
-}
-
-.step-badge {
-  font-size: 13px;
-  font-weight: 600;
 }
 
 .file-row,
@@ -899,11 +974,12 @@ function discard() {
   font-variant-numeric: tabular-nums;
 }
 
-/* akcije ostaju pri ruci i kad je sadrzaj lijevo dug */
+/* Akcije ostaju pri ruci i kad je sadrzaj lijevo dug. Odmak je jednak
+   padingu stranice, pa desni stupac krece u ravnini s lijevim. */
 @media (min-width: 1024px) {
   .side-column {
     position: sticky;
-    top: 74px;
+    top: 24px;
   }
 }
 </style>

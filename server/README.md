@@ -156,6 +156,29 @@ Razvojni korisnici iz `db/seed-dev.sql`, lozinka svima `123456`:
 | GET | `/api/purchase-requests/:id` | zahtjev + stavke, timeline, prilozi, dopusteni koraci |
 | POST | `/api/purchase-requests/:id/attachments` | multipart: `file` + `documentType` |
 | POST | `/api/purchase-requests/:id/transitions` | `{ toStatus, comment }`, promjena statusa |
+| POST | `/api/offers/read` | multipart: `file`; lokalni model cita ponudu i vraca stavke |
+
+### Ocitavanje ponude
+
+`POST /api/offers/read` salje prilozenu ponudu lokalnom modelu na Ollami i
+vraca prijedlog `{ supplier, items, netTotal, model, tookMs }`. Zahtjev tada
+jos ne postoji, pa se datoteka koristi samo za ocitavanje i odmah brise -
+isti dokument klijent poslije salje kao prilog nacrta.
+
+Slike (JPG, PNG) idu ravno u model. PDF se prvo renderira u PNG preko
+`qlmanage`, koji na macOS-u postoji bez instalacije; na drugom sustavu tu
+treba zamjena (npr. `pdftoppm` iz poplera).
+
+Model vraca JSON po zadanoj shemi (Ollamin `format`), pa odgovor ne treba
+parsirati iz teksta. Ocitano je prijedlog - kategoriju stavke i dalje bira
+podnositelj, a zbroj stavki se usporedjuje s iznosom s ponude.
+
+| Varijabla | Zadano |
+| --- | --- |
+| `OLLAMA_URL` | `http://127.0.0.1:11434` |
+| `OLLAMA_MODEL` | `gemma4:e2b` |
+| `OLLAMA_TIMEOUT_MS` | `120000` |
+| `OFFER_RENDER_WIDTH` | `1700` |
 
 ### Prilozi
 
