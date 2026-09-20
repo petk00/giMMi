@@ -31,7 +31,8 @@ INSERT INTO DocumentType (code, name, sort_order) VALUES
   ('OFFER',          'Ponuda',              10),
   ('REQUEST',        'Zahtjev za nabavom',  20),
   ('PURCHASE_ORDER', 'Narudžbenica',        30),
-  ('DELIVERY_NOTE',  'Dostavnica',          40)
+  ('DELIVERY_NOTE',  'Dostavnica',          40),
+  ('OTHER',          'Ostali prilog',       50)
   ON DUPLICATE KEY UPDATE name = VALUES(name), sort_order = VALUES(sort_order);
 
 -- dopusteni prijelazi statusa

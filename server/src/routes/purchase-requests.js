@@ -1,12 +1,16 @@
 import { Router } from 'express'
 
+import { unlink } from 'node:fs/promises'
+
 import { query, queryOne, withTransaction } from '../db.js'
+import { attachmentPath, uploadAttachment } from '../uploads.js'
 import { assertTransitionAllowed, nextRequestNumber, WorkflowError } from '../workflow.js'
 
 export const purchaseRequestsRouter = Router()
 
 const listSql = `
-  select pr.id_purchase_request, pr.request_number, pr.source, pr.total_amount,
+  select pr.id_purchase_request, pr.request_number, pr.source,
+         pr.net_amount, pr.vat_amount, pr.total_amount,
          pr.justification, pr.comment, pr.created_at, pr.updated_at,
          pr.fk_fiscal_year, fy.year,
          pr.fk_department_budget, dept.name as department_name,
@@ -123,13 +127,20 @@ purchaseRequestsRouter.post('/', async (req, res) => {
         `select id_purchase_request_status from PurchaseRequestStatus where code = 'DRAFT'`,
       )
 
-      const total = items.reduce((sum, item) => sum + item.quantity * (item.unit_price ?? 0), 0)
+      const net = items.reduce((sum, item) => sum + item.quantity * (item.unit_price ?? 0), 0)
+      const vat = items.reduce(
+        (sum, item) =>
+          sum + (item.quantity * (item.unit_price ?? 0) * (item.vat_rate ?? 25)) / 100,
+        0,
+      )
+      const total = net + vat
 
       const result = await db.query(
         `insert into PurchaseRequest
            (request_number, source, fk_fiscal_year, fk_department_budget,
-            fk_purchase_request_status, fk_created_by_user, justification, total_amount)
-         values (?, ?, ?, ?, ?, ?, ?, ?)`,
+            fk_purchase_request_status, fk_created_by_user, justification,
+            net_amount, vat_amount, total_amount)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           requestNumber,
           source,
@@ -138,7 +149,9 @@ purchaseRequestsRouter.post('/', async (req, res) => {
           draft.id_purchase_request_status,
           req.user.id_user,
           justification,
-          total,
+          net.toFixed(2),
+          vat.toFixed(2),
+          total.toFixed(2),
         ],
       )
 
@@ -147,14 +160,16 @@ purchaseRequestsRouter.post('/', async (req, res) => {
       for (const item of items) {
         await db.query(
           `insert into PurchaseRequestItem
-             (fk_purchase_request, fk_item_category_budget, item_name, quantity, unit_price)
-           values (?, ?, ?, ?, ?)`,
+             (fk_purchase_request, fk_item_category_budget, item_name, quantity,
+              unit_price, vat_rate)
+           values (?, ?, ?, ?, ?, ?)`,
           [
             requestId,
             item.fk_item_category_budget,
             item.item_name.trim(),
             item.quantity,
             item.unit_price ?? 0,
+            item.vat_rate ?? 25,
           ],
         )
       }
@@ -192,6 +207,7 @@ purchaseRequestsRouter.get('/:id', async (req, res) => {
   const [items, timeline, attachments, transitions] = await Promise.all([
     query(
       `select pri.id_purchase_request_item, pri.item_name, pri.quantity, pri.unit_price,
+              pri.vat_rate,
               pri.quantity * pri.unit_price as line_total,
               pri.fk_item_category_budget, cat.name as item_category_name
          from PurchaseRequestItem pri
@@ -328,4 +344,101 @@ purchaseRequestsRouter.post('/:id/transitions', async (req, res) => {
 
     throw err
   }
+})
+
+// Prilaganje dokumenta uz zahtjev. Verzija raste po tipu dokumenta, a prethodna
+// verzija prestaje biti vazeca - stara ostaje zapisana jer ju je netko mozda
+// vec vidio.
+purchaseRequestsRouter.post('/:id/attachments', (req, res) => {
+  uploadAttachment(req, res, async (uploadError) => {
+    if (uploadError) {
+      return res.status(400).json({ error: uploadError.message })
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'Nedostaje datoteka' })
+    }
+
+    const cleanUp = () => unlink(attachmentPath(req.file.filename)).catch(() => {})
+
+    try {
+      const attachmentId = await withTransaction(async (db) => {
+        const request = await db.queryOne(
+          `select id_purchase_request from PurchaseRequest where id_purchase_request = ?`,
+          [req.params.id],
+        )
+
+        if (request === null) {
+          throw new WorkflowError(`Zahtjev ${req.params.id} ne postoji`, 404)
+        }
+
+        const documentType = await db.queryOne(
+          `select id_document_type, name from DocumentType where code = ?`,
+          [req.body.documentType ?? 'OTHER'],
+        )
+
+        if (documentType === null) {
+          throw new WorkflowError(`Tip dokumenta ${req.body.documentType} ne postoji`, 400)
+        }
+
+        const previous = await db.queryOne(
+          `select max(version) as last_version
+             from PurchaseRequestAttachment
+            where fk_purchase_request = ? and fk_document_type = ?
+            for update`,
+          [req.params.id, documentType.id_document_type],
+        )
+
+        const version = (previous?.last_version ?? 0) + 1
+
+        if (version > 1) {
+          await db.query(
+            `update PurchaseRequestAttachment
+                set is_current = 0
+              where fk_purchase_request = ? and fk_document_type = ?`,
+            [req.params.id, documentType.id_document_type],
+          )
+        }
+
+        const result = await db.query(
+          `insert into PurchaseRequestAttachment
+             (fk_purchase_request, fk_uploaded_by_user, fk_document_type, file_name,
+              file_path, mime_type, version, is_current, is_generated, external_reference)
+           values (?, ?, ?, ?, ?, ?, ?, 1, 0, ?)`,
+          [
+            req.params.id,
+            req.user.id_user,
+            documentType.id_document_type,
+            req.file.originalname,
+            req.file.filename,
+            req.file.mimetype,
+            version,
+            req.body.externalReference ?? null,
+          ],
+        )
+
+        return result.insertId
+      })
+
+      const attachment = await queryOne(
+        `select a.id_purchase_request_attachment, a.file_name, a.mime_type, a.version,
+                a.is_current, a.uploaded_at, dt.code as document_type_code
+           from PurchaseRequestAttachment a
+           join DocumentType dt on dt.id_document_type = a.fk_document_type
+          where a.id_purchase_request_attachment = ?`,
+        [attachmentId],
+      )
+
+      res.status(201).json(attachment)
+    } catch (err) {
+      // datoteka bez zapisa u bazi samo bi zauzimala prostor
+      await cleanUp()
+
+      if (err instanceof WorkflowError) {
+        return res.status(err.status).json({ error: err.message })
+      }
+
+      throw err
+    }
+  })
 })

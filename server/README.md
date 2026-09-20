@@ -154,10 +154,22 @@ Razvojni korisnici iz `db/seed-dev.sql`, lozinka svima `123456`:
 | GET | `/api/purchase-requests?fiscalYear=&status=&departmentBudget=&mine=1` | lista zahtjeva; `mine=1` samo svoje |
 | POST | `/api/purchase-requests` | novi nacrt sa stavkama |
 | GET | `/api/purchase-requests/:id` | zahtjev + stavke, timeline, prilozi, dopusteni koraci |
+| POST | `/api/purchase-requests/:id/attachments` | multipart: `file` + `documentType` |
 | POST | `/api/purchase-requests/:id/transitions` | `{ toStatus, comment }`, promjena statusa |
 
+### Prilozi
+
+Datoteke se cuvaju na disku (`UPLOAD_DIR`, po defaultu `server/uploads/`, izvan
+gita), a u bazi ostaje zapis s izvornim imenom. Ime na disku dodjeljuje server
+(`uuid` + ekstenzija), jer ime s klijenta moze sadrzavati putanju. Dopusteni su
+PDF, JPG, PNG, DOCX i XLSX do `UPLOAD_MAX_BYTES` (10 MB). Novi prilog istog tipa
+podize `version` i gasi `is_current` na prethodnom, pa stara verzija ostaje
+zapisana. Ako zapis u bazi ne uspije, datoteka se brise.
+
 Kod stvaranja zahtjeva klijent salje `source`, `departmentBudget`,
-`justification` i `items`. Fiskalna godina se cita iz odabranog proracuna, pa
+`justification` i `items` (svaka stavka nosi `vat_rate`). `total_amount` je
+iznos s PDV-om, a `net_amount` i `vat_amount` cuvaju razradu.
+Fiskalna godina se cita iz odabranog proracuna, pa
 zahtjev ne moze zavrsiti u pogresnoj godini, a broj zahtjeva
 (`ZN-<godina>-<redni broj>`) dodjeljuje se unutar transakcije, pa dva
 istovremena zahtjeva ne mogu dobiti isti broj.

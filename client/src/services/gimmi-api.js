@@ -35,4 +35,13 @@ export const gimmiApi = {
 
   changePurchaseRequestStatus: (id, toStatus, comment) =>
     api.post(`/purchase-requests/${id}/transitions`, { toStatus, comment }).then((res) => res.data),
+
+  // prilog ide kao multipart; documentType je kod iz sifrarnika DocumentType
+  addAttachment: (id, file, documentType) => {
+    const form = new FormData()
+    form.append('documentType', documentType)
+    form.append('file', file)
+
+    return api.post(`/purchase-requests/${id}/attachments`, form).then((res) => res.data)
+  },
 }
