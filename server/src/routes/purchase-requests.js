@@ -51,17 +51,23 @@ purchaseRequestsRouter.get('/', async (req, res) => {
   res.json(rows)
 })
 
-// Zahtjev nastaje kao nacrt: fiskalnu godinu i proracun sluzbe odredjuje server
-// iz prijavljenog korisnika, pa ih klijent ne moze pogrijesiti ni podmetnuti.
+// Zahtjev nastaje kao nacrt. Troskovno mjesto bira podnositelj - isti covjek
+// moze trositi na vise sluzbi ili projekata - a fiskalna godina se cita iz
+// odabranog proracuna, pa ne moze zavrsiti u pogresnoj godini.
 purchaseRequestsRouter.post('/', async (req, res) => {
-  const { source = 'CATALOG', justification = null, items = [] } = req.body ?? {}
+  const {
+    source = 'CATALOG',
+    departmentBudget = null,
+    justification = null,
+    items = [],
+  } = req.body ?? {}
 
   if (!['OFFER', 'CATALOG'].includes(source)) {
     return res.status(400).json({ error: 'Izvor zahtjeva mora biti OFFER ili CATALOG' })
   }
 
-  if (req.user.fk_department === null) {
-    return res.status(422).json({ error: 'Niste rasporedjeni ni u jednu sluzbu' })
+  if (!departmentBudget) {
+    return res.status(400).json({ error: 'Odaberite troskovno mjesto' })
   }
 
   for (const item of items) {
@@ -77,17 +83,35 @@ purchaseRequestsRouter.post('/', async (req, res) => {
   try {
     const created = await withTransaction(async (db) => {
       const budget = await db.queryOne(
-        `select b.id_department_budget, b.fk_fiscal_year, fy.year
+        `select b.id_department_budget, b.fk_fiscal_year, fy.year, fy.is_closed,
+                d.name as department_name, d.is_active, d.valid_from, d.valid_to
            from DepartmentBudget b
            join FiscalYear fy on fy.id_fiscal_year = b.fk_fiscal_year
-          where b.fk_department = ? and fy.is_closed = 0
-          order by fy.year desc
-          limit 1`,
-        [req.user.fk_department],
+           join Department d on d.id_department = b.fk_department
+          where b.id_department_budget = ?`,
+        [departmentBudget],
       )
 
       if (budget === null) {
-        throw new WorkflowError('Vasa sluzba nema proracun u otvorenoj fiskalnoj godini')
+        throw new WorkflowError('Odabrano troskovno mjesto ne postoji', 404)
+      }
+
+      if (budget.is_closed === 1) {
+        throw new WorkflowError(`Fiskalna godina ${budget.year} je zatvorena`)
+      }
+
+      if (budget.is_active !== 1) {
+        throw new WorkflowError(`Troskovno mjesto "${budget.department_name}" nije aktivno`)
+      }
+
+      // projekt vrijedi samo unutar svojih datuma
+      const today = new Date().toISOString().slice(0, 10)
+
+      if (
+        (budget.valid_from !== null && today < budget.valid_from) ||
+        (budget.valid_to !== null && today > budget.valid_to)
+      ) {
+        throw new WorkflowError(`Projekt "${budget.department_name}" trenutno nije u tijeku`)
       }
 
       const requestNumber = await nextRequestNumber(db, {

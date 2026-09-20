@@ -64,10 +64,16 @@ mysqldump -u root --no-data --compact --skip-comments --set-gtid-purged=OFF \
 `AppUser` je jedina iznimka s prefiksom - `User` je rezervirana rijec u
 PostgreSQL-u, pa se izbjegava i ovdje; njezin PK ostaje `id_user`.
 
-`Department` je trajna organizacijska jedinica i na nju se vezu korisnici;
-`DepartmentBudget` je iznos koji ta sluzba ima u jednoj fiskalnoj godini
-(unique po `(fk_department, fk_fiscal_year)`). `ItemCategoryBudget` je i dalje
-kategorija s limitom unutar godine.
+`Department` je troskovno mjesto: `kind = DEPARTMENT` za sluzbu koja se
+preslikava iz godine u godinu, `kind = PROJECT` za projekt omedjen datumima
+(`valid_from`, `valid_to`). `DepartmentBudget` je iznos koji to mjesto ima u
+jednoj fiskalnoj godini (unique po `(fk_department, fk_fiscal_year)`).
+`ItemCategoryBudget` je kategorija s limitom unutar godine.
+
+Korisnik nije vezan ni na jedno troskovno mjesto - isti zaposlenik moze trositi
+na vise sluzbi i projekata - pa ga podnositelj bira pri sastavljanju zahtjeva.
+Server tada provjerava da mjesto postoji, da je aktivno, da fiskalna godina nije
+zatvorena i da je projekt u tijeku.
 `PurchaseRequest` je slozenim stranim kljucem vezan na `(id_department_budget,
 fk_fiscal_year)`, pa ne moze pokazivati na proracun odjela iz druge godine.
 
@@ -139,7 +145,7 @@ Razvojni korisnici iz `db/seed-dev.sql`, lozinka svima `123456`:
 | --- | --- | --- |
 | GET | `/api/health` | status servera i ping baze (503 ako baza pada) |
 | GET | `/api/fiscal-years` | fiskalne godine s budzetom |
-| GET | `/api/departments` | sluzbe (trajne organizacijske jedinice) |
+| GET | `/api/departments?kind=` | troskovna mjesta: sluzbe i projekti |
 | GET | `/api/department-budgets?fiscalYear=` | proracuni sluzbi po godini |
 | GET | `/api/item-category-budgets?fiscalYear=` | kategorije stavki s limitima po godini |
 | GET | `/api/purchase-request-statuses` | statusi zahtjeva |
@@ -150,9 +156,10 @@ Razvojni korisnici iz `db/seed-dev.sql`, lozinka svima `123456`:
 | GET | `/api/purchase-requests/:id` | zahtjev + stavke, timeline, prilozi, dopusteni koraci |
 | POST | `/api/purchase-requests/:id/transitions` | `{ toStatus, comment }`, promjena statusa |
 
-Kod stvaranja zahtjeva klijent salje samo `source`, `justification` i `items`.
-Fiskalnu godinu i proracun sluzbe server uzima iz prijavljenog korisnika, a broj
-zahtjeva (`ZN-<godina>-<redni broj>`) dodjeljuje unutar transakcije, pa dva
+Kod stvaranja zahtjeva klijent salje `source`, `departmentBudget`,
+`justification` i `items`. Fiskalna godina se cita iz odabranog proracuna, pa
+zahtjev ne moze zavrsiti u pogresnoj godini, a broj zahtjeva
+(`ZN-<godina>-<redni broj>`) dodjeljuje se unutar transakcije, pa dva
 istovremena zahtjeva ne mogu dobiti isti broj.
 
 ## Struktura

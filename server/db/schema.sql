@@ -1,7 +1,6 @@
 CREATE TABLE `AppUser` (
   `id_user` int NOT NULL AUTO_INCREMENT,
   `fk_role` int NOT NULL,
-  `fk_department` int DEFAULT NULL,
   `first_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `last_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `email` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -13,17 +12,18 @@ CREATE TABLE `AppUser` (
   UNIQUE KEY `uq_app_user_email` (`email`),
   KEY `fk_app_user_role` (`fk_role`),
   KEY `idx_app_user_invite_token` (`invite_token`),
-  KEY `fk_app_user_department` (`fk_department`),
-  CONSTRAINT `fk_app_user_department` FOREIGN KEY (`fk_department`) REFERENCES `Department` (`id_department`) ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT `fk_app_user_role` FOREIGN KEY (`fk_role`) REFERENCES `Role` (`id_role`) ON DELETE RESTRICT ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE `Department` (
   `id_department` int NOT NULL AUTO_INCREMENT,
   `name` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `kind` enum('DEPARTMENT','PROJECT') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'DEPARTMENT',
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `valid_from` date DEFAULT NULL,
+  `valid_to` date DEFAULT NULL,
   PRIMARY KEY (`id_department`),
   UNIQUE KEY `uq_department_name` (`name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE `DepartmentBudget` (
   `id_department_budget` int NOT NULL AUTO_INCREMENT,
   `fk_department` int NOT NULL,
@@ -35,7 +35,7 @@ CREATE TABLE `DepartmentBudget` (
   KEY `fk_department_budget_fiscal_year` (`fk_fiscal_year`),
   CONSTRAINT `fk_department_budget_department` FOREIGN KEY (`fk_department`) REFERENCES `Department` (`id_department`) ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT `fk_department_budget_fiscal_year` FOREIGN KEY (`fk_fiscal_year`) REFERENCES `FiscalYear` (`id_fiscal_year`) ON DELETE RESTRICT ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE `DocumentType` (
   `id_document_type` int NOT NULL AUTO_INCREMENT,
   `code` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -51,7 +51,7 @@ CREATE TABLE `FiscalYear` (
   `total_budget` decimal(14,2) NOT NULL DEFAULT '0.00',
   PRIMARY KEY (`id_fiscal_year`),
   UNIQUE KEY `uq_fiscal_year_year` (`year`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE `ItemCategoryBudget` (
   `id_item_category_budget` int NOT NULL AUTO_INCREMENT,
   `fk_fiscal_year` int NOT NULL,
@@ -62,7 +62,7 @@ CREATE TABLE `ItemCategoryBudget` (
   UNIQUE KEY `uq_item_category_budget_year_name` (`fk_fiscal_year`,`name`),
   KEY `fk_item_category_budget_fiscal_year` (`fk_fiscal_year`),
   CONSTRAINT `fk_item_category_budget_fiscal_year` FOREIGN KEY (`fk_fiscal_year`) REFERENCES `FiscalYear` (`id_fiscal_year`) ON DELETE RESTRICT ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE `PurchaseRequest` (
   `id_purchase_request` int NOT NULL AUTO_INCREMENT,
   `request_number` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -89,7 +89,7 @@ CREATE TABLE `PurchaseRequest` (
   CONSTRAINT `fk_purchase_request_department_budget` FOREIGN KEY (`fk_department_budget`, `fk_fiscal_year`) REFERENCES `DepartmentBudget` (`id_department_budget`, `fk_fiscal_year`) ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT `fk_purchase_request_fiscal_year` FOREIGN KEY (`fk_fiscal_year`) REFERENCES `FiscalYear` (`id_fiscal_year`) ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT `fk_purchase_request_status` FOREIGN KEY (`fk_purchase_request_status`) REFERENCES `PurchaseRequestStatus` (`id_purchase_request_status`) ON DELETE RESTRICT ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE `PurchaseRequestAttachment` (
   `id_purchase_request_attachment` int NOT NULL AUTO_INCREMENT,
   `fk_purchase_request` int NOT NULL,
@@ -124,7 +124,7 @@ CREATE TABLE `PurchaseRequestItem` (
   KEY `fk_purchase_request_item_category` (`fk_item_category_budget`),
   CONSTRAINT `fk_purchase_request_item_category` FOREIGN KEY (`fk_item_category_budget`) REFERENCES `ItemCategoryBudget` (`id_item_category_budget`) ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT `fk_purchase_request_item_request` FOREIGN KEY (`fk_purchase_request`) REFERENCES `PurchaseRequest` (`id_purchase_request`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE `PurchaseRequestStatus` (
   `id_purchase_request_status` int NOT NULL AUTO_INCREMENT,
   `code` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -149,7 +149,7 @@ CREATE TABLE `PurchaseRequestStatusHistory` (
   CONSTRAINT `fk_purchase_request_status_history_changed_by` FOREIGN KEY (`fk_changed_by_user`) REFERENCES `AppUser` (`id_user`) ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT `fk_purchase_request_status_history_request` FOREIGN KEY (`fk_purchase_request`) REFERENCES `PurchaseRequest` (`id_purchase_request`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `fk_purchase_request_status_history_status` FOREIGN KEY (`fk_purchase_request_status`) REFERENCES `PurchaseRequestStatus` (`id_purchase_request_status`) ON DELETE RESTRICT ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE `Role` (
   `id_role` int NOT NULL AUTO_INCREMENT,
   `code` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,

@@ -48,6 +48,13 @@ export default defineRouter(function ({ store }) {
       return { path: '/prijava', query: { redirect: to.fullPath } }
     }
 
+    // ruta trazi rolu; sakrivanje u izborniku nije dovoljno jer se URL moze upisati
+    const roles = to.meta.roles
+
+    if (roles !== undefined && auth.roleCode !== 'ADMIN' && !roles.includes(auth.roleCode)) {
+      return '/zahtjevi'
+    }
+
     return true
   })
 

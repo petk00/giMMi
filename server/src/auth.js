@@ -8,11 +8,9 @@ export const TOKEN_COOKIE = 'gimmi_token'
 
 const userSql = `
   select u.id_user, u.first_name, u.last_name, u.email, u.is_active, u.password_hash,
-         u.fk_role, r.code as role_code, r.name as role_name,
-         u.fk_department, d.name as department_name
+         u.fk_role, r.code as role_code, r.name as role_name
     from AppUser u
-    join Role r on r.id_role = u.fk_role
-    left join Department d on d.id_department = u.fk_department`
+    join Role r on r.id_role = u.fk_role`
 
 export function hashPassword(password) {
   return bcrypt.hash(password, 10)

@@ -10,7 +10,7 @@ departmentBudgetsRouter.get('/', async (req, res) => {
 
   const rows = await query(
     `select b.id_department_budget, b.budget_limit,
-            b.fk_department, d.name as department_name, d.is_active,
+            b.fk_department, d.name as department_name, d.kind, d.is_active,
             b.fk_fiscal_year, fy.year
        from DepartmentBudget b
        join Department d on d.id_department = b.fk_department

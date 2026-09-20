@@ -27,7 +27,7 @@
 
     <q-drawer v-model="leftDrawerOpen" show-if-above bordered class="column no-wrap">
       <q-list class="col scroll q-pt-sm">
-        <template v-for="section in menuSections" :key="section.label ?? 'glavno'">
+        <template v-for="section in visibleSections" :key="section.label ?? 'glavno'">
           <q-item-label v-if="section.label" header>{{ section.label }}</q-item-label>
 
           <q-item
@@ -57,12 +57,7 @@
 
         <q-item-section>
           <q-item-label class="text-weight-medium">{{ auth.fullName }}</q-item-label>
-          <q-item-label caption>
-            {{ auth.user?.role_name }}
-            <template v-if="auth.user?.department_name">
-              · {{ auth.user.department_name }}
-            </template>
-          </q-item-label>
+          <q-item-label caption>{{ auth.user?.role_name }}</q-item-label>
         </q-item-section>
 
         <q-item-section side>
@@ -86,7 +81,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { useAuthStore } from 'src/stores/auth'
@@ -94,6 +89,7 @@ import { useAuthStore } from 'src/stores/auth'
 const menuSections = [
   {
     label: null,
+    roles: null,
     items: [
       { title: 'Moji zahtjevi', icon: 'assignment', to: '/zahtjevi' },
       { title: 'Novi zahtjev', icon: 'add_circle_outline', to: '/zahtjevi/novi' },
@@ -101,6 +97,7 @@ const menuSections = [
   },
   {
     label: 'Nabava',
+    roles: ['PROCUREMENT'],
     items: [
       { title: 'Zahtjevi', icon: 'fact_check', to: '/nabava/zahtjevi' },
       { title: 'Narudžbe', icon: 'shopping_cart', to: '/narudzbe' },
@@ -109,6 +106,7 @@ const menuSections = [
   },
   {
     label: 'Pomoć',
+    roles: null,
     items: [
       { title: 'Kako podnijeti zahtjev', icon: 'help_outline', to: '/pomoc/podnosenje-zahtjeva' },
       { title: 'Kontakt računovodstva', icon: 'mail_outline', to: '/pomoc/kontakt' },
@@ -116,6 +114,7 @@ const menuSections = [
   },
   {
     label: 'Financije',
+    roles: ['PROCUREMENT'],
     items: [
       { title: 'Kategorije', icon: 'category', to: '/kategorije' },
       { title: 'Službe i projekti', icon: 'account_tree', to: '/sluzbe-i-projekti' },
@@ -124,6 +123,7 @@ const menuSections = [
   },
   {
     label: 'Ostalo',
+    roles: ['PROCUREMENT'],
     items: [
       { title: 'Dobavljači', icon: 'local_shipping', to: '/dobavljaci' },
       { title: 'Izvještaji', icon: 'bar_chart', to: '/izvjestaji' },
@@ -131,12 +131,22 @@ const menuSections = [
   },
   {
     label: 'Administracija',
+    roles: [],
     items: [{ title: 'Korisnici', icon: 'group', to: '/korisnici' }],
   },
 ]
 
 const auth = useAuthStore()
 const router = useRouter()
+
+// Administrator vidi sve; ostalima se prikazuju samo sekcije za njihovu rolu.
+// Ovo je samo sucelje - rute cuva guard, a podatke server.
+const visibleSections = computed(() =>
+  menuSections.filter(
+    (section) =>
+      section.roles === null || auth.roleCode === 'ADMIN' || section.roles.includes(auth.roleCode),
+  ),
+)
 
 const loggingOut = ref(false)
 
