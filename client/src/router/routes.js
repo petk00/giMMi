@@ -9,7 +9,11 @@ const routes = [
       // pocetna stranica nakon prijave
       { path: '', redirect: '/zahtjevi' },
 
-      { path: 'zahtjevi', component: placeholder, meta: { title: 'Moji zahtjevi' } },
+      {
+        path: 'zahtjevi',
+        component: () => import('pages/MyRequestsPage.vue'),
+        meta: { title: 'Moji zahtjevi' },
+      },
 
       // pregled stanja veze s bazom, nije u izborniku
       {

@@ -16,7 +16,12 @@
 
         <q-toolbar-title class="text-subtitle1">{{ $route.meta.title }}</q-toolbar-title>
 
-        <div class="text-caption text-grey-7">Quasar v{{ $q.version }}</div>
+        <!-- broj obavijesti je placeholder dok ne postoji izvor podataka -->
+        <q-btn flat round dense icon="notifications" aria-label="Obavijesti" class="q-mr-sm">
+          <q-badge color="red" floating>3</q-badge>
+        </q-btn>
+
+        <q-btn unelevated color="primary" icon="add" label="Novi zahtjev" to="/zahtjevi/novi" />
       </q-toolbar>
     </q-header>
 

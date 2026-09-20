@@ -6,9 +6,9 @@ export const purchaseRequestStatusesRouter = Router()
 
 purchaseRequestStatusesRouter.get('/', async (req, res) => {
   const rows = await query(
-    `select id_purchase_request_status, name
+    `select id_purchase_request_status, code, name, sort_order, is_final
        from PurchaseRequestStatus
-      order by id_purchase_request_status`,
+      order by sort_order`,
   )
 
   res.json(rows)

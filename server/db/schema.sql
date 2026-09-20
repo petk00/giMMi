@@ -26,6 +26,14 @@ CREATE TABLE `DepartmentBudget` (
   KEY `fk_department_budget_fiscal_year` (`fk_fiscal_year`),
   CONSTRAINT `fk_department_budget_fiscal_year` FOREIGN KEY (`fk_fiscal_year`) REFERENCES `FiscalYear` (`id_fiscal_year`) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE `DocumentType` (
+  `id_document_type` int NOT NULL AUTO_INCREMENT,
+  `code` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sort_order` int NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id_document_type`),
+  UNIQUE KEY `uq_document_type_code` (`code`)
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE `FiscalYear` (
   `id_fiscal_year` int NOT NULL AUTO_INCREMENT,
   `year` int NOT NULL,
@@ -48,6 +56,7 @@ CREATE TABLE `ItemCategoryBudget` (
 CREATE TABLE `PurchaseRequest` (
   `id_purchase_request` int NOT NULL AUTO_INCREMENT,
   `request_number` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `source` enum('OFFER','CATALOG') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'CATALOG',
   `fk_fiscal_year` int NOT NULL,
   `fk_department_budget` int NOT NULL,
   `fk_purchase_request_status` int NOT NULL,
@@ -72,14 +81,21 @@ CREATE TABLE `PurchaseRequestAttachment` (
   `id_purchase_request_attachment` int NOT NULL AUTO_INCREMENT,
   `fk_purchase_request` int NOT NULL,
   `fk_uploaded_by_user` int NOT NULL,
+  `fk_document_type` int NOT NULL,
   `file_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `file_path` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `mime_type` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `document_type` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `uploaded_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `version` int NOT NULL DEFAULT '1',
+  `is_current` tinyint(1) NOT NULL DEFAULT '1',
+  `is_generated` tinyint(1) NOT NULL DEFAULT '0',
+  `external_reference` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id_purchase_request_attachment`),
+  UNIQUE KEY `uq_purchase_request_attachment_version` (`fk_purchase_request`,`fk_document_type`,`version`),
   KEY `fk_purchase_request_attachment_request` (`fk_purchase_request`),
   KEY `fk_purchase_request_attachment_uploaded_by` (`fk_uploaded_by_user`),
+  KEY `fk_purchase_request_attachment_document_type` (`fk_document_type`),
+  CONSTRAINT `fk_purchase_request_attachment_document_type` FOREIGN KEY (`fk_document_type`) REFERENCES `DocumentType` (`id_document_type`) ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT `fk_purchase_request_attachment_request` FOREIGN KEY (`fk_purchase_request`) REFERENCES `PurchaseRequest` (`id_purchase_request`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `fk_purchase_request_attachment_uploaded_by` FOREIGN KEY (`fk_uploaded_by_user`) REFERENCES `AppUser` (`id_user`) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -89,6 +105,7 @@ CREATE TABLE `PurchaseRequestItem` (
   `fk_item_category_budget` int NOT NULL,
   `item_name` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `quantity` int NOT NULL DEFAULT '1',
+  `unit_price` decimal(14,2) NOT NULL DEFAULT '0.00',
   PRIMARY KEY (`id_purchase_request_item`),
   KEY `fk_purchase_request_item_request` (`fk_purchase_request`),
   KEY `fk_purchase_request_item_category` (`fk_item_category_budget`),
@@ -97,10 +114,14 @@ CREATE TABLE `PurchaseRequestItem` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE `PurchaseRequestStatus` (
   `id_purchase_request_status` int NOT NULL AUTO_INCREMENT,
+  `code` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
   `name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sort_order` int NOT NULL DEFAULT '0',
+  `is_final` tinyint(1) NOT NULL DEFAULT '0',
   PRIMARY KEY (`id_purchase_request_status`),
-  UNIQUE KEY `uq_purchase_request_status_name` (`name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  UNIQUE KEY `uq_purchase_request_status_name` (`name`),
+  UNIQUE KEY `uq_purchase_request_status_code` (`code`)
+) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE `PurchaseRequestStatusHistory` (
   `id_purchase_request_status_history` int NOT NULL AUTO_INCREMENT,
   `fk_purchase_request` int NOT NULL,
@@ -121,10 +142,31 @@ CREATE TABLE `Role` (
   `name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   PRIMARY KEY (`id_role`),
   UNIQUE KEY `uq_role_name` (`name`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE `Setting` (
   `setting_key` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `setting_value` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`setting_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE `StatusTransition` (
+  `id_status_transition` int NOT NULL AUTO_INCREMENT,
+  `fk_from_status` int NOT NULL,
+  `fk_to_status` int NOT NULL,
+  `applies_to_source` enum('ANY','OFFER','CATALOG') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ANY',
+  `fk_required_document_type` int DEFAULT NULL,
+  `fk_generates_document_type` int DEFAULT NULL,
+  `requires_comment` tinyint(1) NOT NULL DEFAULT '0',
+  `fk_role` int DEFAULT NULL,
+  PRIMARY KEY (`id_status_transition`),
+  UNIQUE KEY `uq_status_transition_from_to_source` (`fk_from_status`,`fk_to_status`,`applies_to_source`),
+  KEY `fk_status_transition_to_status` (`fk_to_status`),
+  KEY `fk_status_transition_required_document` (`fk_required_document_type`),
+  KEY `fk_status_transition_generates_document` (`fk_generates_document_type`),
+  KEY `fk_status_transition_role` (`fk_role`),
+  CONSTRAINT `fk_status_transition_from_status` FOREIGN KEY (`fk_from_status`) REFERENCES `PurchaseRequestStatus` (`id_purchase_request_status`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_status_transition_generates_document` FOREIGN KEY (`fk_generates_document_type`) REFERENCES `DocumentType` (`id_document_type`) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `fk_status_transition_required_document` FOREIGN KEY (`fk_required_document_type`) REFERENCES `DocumentType` (`id_document_type`) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `fk_status_transition_role` FOREIGN KEY (`fk_role`) REFERENCES `Role` (`id_role`) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `fk_status_transition_to_status` FOREIGN KEY (`fk_to_status`) REFERENCES `PurchaseRequestStatus` (`id_purchase_request_status`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=16 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

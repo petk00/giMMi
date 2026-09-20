@@ -36,7 +36,11 @@ U `db/` se drzi shema:
 ```
 db/schema.sql      # trenutno stanje sheme, izvezeno iz baze
 db/migrations/     # promjene sheme, kronoloski
+db/seed.sql        # sifrarnici bez kojih aplikacija ne radi
 ```
+
+Sifrarnici se ucitavaju iz `db/seed.sql` (`mysql -u root gimmi < db/seed.sql`).
+Skripta se smije pokrenuti vise puta - postojeci redci se samo osvjeze.
 
 Migracija se pokrece rucno: `mysql -u root gimmi < db/migrations/<ime>.sql`,
 a nakon toga se `db/schema.sql` ponovo izvozi:
@@ -64,6 +68,30 @@ proracun za jednu fiskalnu godinu (unique po `(fk_fiscal_year, name)`).
 `PurchaseRequest` je slozenim stranim kljucem vezan na `(id_department_budget,
 fk_fiscal_year)`, pa ne moze pokazivati na proracun odjela iz druge godine.
 
+### Tok zahtjeva
+
+Zahtjev nastaje kao `DRAFT` i prolazi kroz statuse do `RECEIVED` ili `REJECTED`.
+Pravila nisu u kodu nego u tablici `StatusTransition`: koji je prijelaz dopusten,
+trazi li prilozeni dokument, generira li ga i treba li komentar.
+
+| Prijelaz | Uvjet | Nastaje |
+| --- | --- | --- |
+| `DRAFT` -> `SUBMITTED` | ponuda, samo ako je `source = OFFER` | zahtjev za nabavom |
+| `SUBMITTED` -> `NEEDS_INFO` | komentar | - |
+| `NEEDS_INFO` -> `SUBMITTED` | ponuda, samo ako je `source = OFFER` | nova verzija zahtjeva |
+| `SUBMITTED` -> `APPROVED` | - | - |
+| `SUBMITTED` -> `REJECTED` | komentar | - |
+| `APPROVED` -> `ORDERED` | narudzbenica | - |
+| `ORDERED` -> `RECEIVED` | dostavnica | - |
+
+`PurchaseRequest.source` govori je li zahtjev nastao iz ponude dobavljaca
+(`OFFER`) ili iz kataloga s ugovorenim cijenama (`CATALOG`) - o tome ovisi je li
+ponuda uvjet za podnosenje. Zahtjev za nabavom generira sustav (`is_generated`),
+pa se pri svakoj dopuni sprema kao nova `version`, a stara ostaje zapisana.
+
+`GET /api/purchase-requests/:id` uz zahtjev vraca i `transitions` - popis koraka
+koji su s tog zahtjeva trenutno dopusteni, s uvjetima.
+
 ## Endpointi
 
 | Metoda | Ruta | Opis |
@@ -73,6 +101,7 @@ fk_fiscal_year)`, pa ne moze pokazivati na proracun odjela iz druge godine.
 | GET | `/api/department-budgets?fiscalYear=` | odjeli s limitima po godini |
 | GET | `/api/item-category-budgets?fiscalYear=` | kategorije stavki s limitima po godini |
 | GET | `/api/purchase-request-statuses` | statusi zahtjeva |
+| GET | `/api/document-types` | tipovi dokumenata |
 | GET | `/api/users` | korisnici s rolom (bez `password_hash`) |
 | GET | `/api/purchase-requests?fiscalYear=&status=&departmentBudget=` | lista zahtjeva |
 | GET | `/api/purchase-requests/:id` | zahtjev + stavke, povijest statusa i prilozi |
