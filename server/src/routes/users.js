@@ -8,7 +8,7 @@ export const usersRouter = Router()
 usersRouter.get('/', async (req, res) => {
   const rows = await query(
     `select u.id_user, u.first_name, u.last_name, u.email, u.is_active,
-            u.fk_role, r.name as role_name
+            u.fk_role, r.code as role_code, r.name as role_name
        from AppUser u
        join Role r on r.id_role = u.fk_role
       order by u.last_name, u.first_name`,

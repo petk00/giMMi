@@ -3,13 +3,23 @@ const placeholder = () => import('pages/PlaceholderPage.vue')
 
 const routes = [
   {
+    path: '/prijava',
+    component: () => import('pages/LoginPage.vue'),
+    meta: { title: 'Prijava', public: true },
+  },
+
+  {
     path: '/',
     component: () => import('layouts/MainLayout.vue'),
     children: [
       // pocetna stranica nakon prijave
       { path: '', redirect: '/zahtjevi' },
 
-      { path: 'zahtjevi', component: placeholder, meta: { title: 'Moji zahtjevi' } },
+      {
+        path: 'zahtjevi',
+        component: () => import('pages/MyRequestsPage.vue'),
+        meta: { title: 'Moji zahtjevi' },
+      },
 
       // pregled stanja veze s bazom, nije u izborniku
       {
@@ -17,19 +27,60 @@ const routes = [
         component: () => import('pages/IndexPage.vue'),
         meta: { title: 'Pregled' },
       },
-      { path: 'zahtjevi/novi', component: placeholder, meta: { title: 'Novi zahtjev' } },
-      { path: 'nabava/zahtjevi', component: placeholder, meta: { title: 'Zahtjevi' } },
-      { path: 'narudzbe', component: placeholder, meta: { title: 'Narudžbe' } },
+      {
+        path: 'zahtjevi/novi',
+        component: () => import('pages/NewRequestPage.vue'),
+        meta: { title: 'Novi zahtjev' },
+      },
+      { path: 'zahtjevi/:id', component: placeholder, meta: { title: 'Zahtjev' } },
+      {
+        path: 'nabava/zahtjevi',
+        component: placeholder,
+        meta: { title: 'Zahtjevi', roles: ['PROCUREMENT'] },
+      },
+      {
+        path: 'narudzbe',
+        component: placeholder,
+        meta: { title: 'Narudžbe', roles: ['PROCUREMENT'] },
+      },
 
-      { path: 'kategorije', component: placeholder, meta: { title: 'Kategorije' } },
-      { path: 'sluzbe-i-projekti', component: placeholder, meta: { title: 'Službe i projekti' } },
-      { path: 'knjizenja', component: placeholder, meta: { title: 'Knjiženja' } },
+      {
+        path: 'kategorije',
+        component: placeholder,
+        meta: { title: 'Kategorije', roles: ['PROCUREMENT'] },
+      },
+      {
+        path: 'sluzbe-i-projekti',
+        component: placeholder,
+        meta: { title: 'Službe i projekti', roles: ['PROCUREMENT'] },
+      },
+      {
+        path: 'knjizenja',
+        component: placeholder,
+        meta: { title: 'Knjiženja', roles: ['PROCUREMENT'] },
+      },
 
-      { path: 'katalog', component: placeholder, meta: { title: 'Katalog' } },
-      { path: 'dobavljaci', component: placeholder, meta: { title: 'Dobavljači' } },
-      { path: 'izvjestaji', component: placeholder, meta: { title: 'Izvještaji' } },
+      {
+        path: 'katalog',
+        component: placeholder,
+        meta: { title: 'Katalog', roles: ['PROCUREMENT'] },
+      },
+      {
+        path: 'dobavljaci',
+        component: placeholder,
+        meta: { title: 'Dobavljači', roles: ['PROCUREMENT'] },
+      },
+      {
+        path: 'izvjestaji',
+        component: placeholder,
+        meta: { title: 'Izvještaji', roles: ['PROCUREMENT'] },
+      },
 
-      { path: 'korisnici', component: placeholder, meta: { title: 'Korisnici' } },
+      {
+        path: 'korisnici',
+        component: placeholder,
+        meta: { title: 'Korisnici', roles: [] },
+      },
 
       {
         path: 'pomoc/podnosenje-zahtjeva',

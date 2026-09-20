@@ -10,7 +10,8 @@ import axios from 'axios'
 
 // U devu je to '/api' pa Quasar dev server proxyja pozive na node server (/server),
 // a u produkciji se postavlja preko API_BASE_URL env varijable.
-const api = axios.create({ baseURL: process.env.API_BASE_URL })
+// withCredentials da kolacic s tokenom ide i kad API nije na istom originu
+const api = axios.create({ baseURL: process.env.API_BASE_URL, withCredentials: true })
 
 export default defineBoot(({ app }) => {
   // for use inside Vue files (Options API) through this.$axios and this.$api

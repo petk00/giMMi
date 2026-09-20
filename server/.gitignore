@@ -1,5 +1,8 @@
 node_modules
 
+# prilozi korisnika
+uploads
+
 # local .env files
 .env
 .env.local*

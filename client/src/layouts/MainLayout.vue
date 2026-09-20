@@ -16,13 +16,18 @@
 
         <q-toolbar-title class="text-subtitle1">{{ $route.meta.title }}</q-toolbar-title>
 
-        <div class="text-caption text-grey-7">Quasar v{{ $q.version }}</div>
+        <!-- broj obavijesti je placeholder dok ne postoji izvor podataka -->
+        <q-btn flat round dense icon="notifications" aria-label="Obavijesti" class="q-mr-sm">
+          <q-badge color="red" floating>3</q-badge>
+        </q-btn>
+
+        <q-btn unelevated color="primary" icon="add" label="Novi zahtjev" to="/zahtjevi/novi" />
       </q-toolbar>
     </q-header>
 
     <q-drawer v-model="leftDrawerOpen" show-if-above bordered class="column no-wrap">
       <q-list class="col scroll q-pt-sm">
-        <template v-for="section in menuSections" :key="section.label ?? 'glavno'">
+        <template v-for="section in visibleSections" :key="section.label ?? 'glavno'">
           <q-item-label v-if="section.label" header>{{ section.label }}</q-item-label>
 
           <q-item
@@ -45,15 +50,26 @@
 
       <q-separator />
 
-      <!-- prijavljeni korisnik - staticki dok ne postoji prijava -->
       <q-item class="q-py-md">
         <q-item-section avatar>
           <q-avatar size="36px" color="grey-3" text-color="grey-8" icon="person" />
         </q-item-section>
 
         <q-item-section>
-          <q-item-label class="text-weight-medium">{{ currentUser.name }}</q-item-label>
-          <q-item-label caption>{{ currentUser.role }}</q-item-label>
+          <q-item-label class="text-weight-medium">{{ auth.fullName }}</q-item-label>
+          <q-item-label caption>{{ auth.user?.role_name }}</q-item-label>
+        </q-item-section>
+
+        <q-item-section side>
+          <q-btn
+            flat
+            dense
+            round
+            icon="logout"
+            aria-label="Odjava"
+            :loading="loggingOut"
+            @click="logout"
+          />
         </q-item-section>
       </q-item>
     </q-drawer>
@@ -65,11 +81,15 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
+
+import { useAuthStore } from 'src/stores/auth'
 
 const menuSections = [
   {
     label: null,
+    roles: null,
     items: [
       { title: 'Moji zahtjevi', icon: 'assignment', to: '/zahtjevi' },
       { title: 'Novi zahtjev', icon: 'add_circle_outline', to: '/zahtjevi/novi' },
@@ -77,6 +97,7 @@ const menuSections = [
   },
   {
     label: 'Nabava',
+    roles: ['PROCUREMENT'],
     items: [
       { title: 'Zahtjevi', icon: 'fact_check', to: '/nabava/zahtjevi' },
       { title: 'Narudžbe', icon: 'shopping_cart', to: '/narudzbe' },
@@ -85,6 +106,7 @@ const menuSections = [
   },
   {
     label: 'Pomoć',
+    roles: null,
     items: [
       { title: 'Kako podnijeti zahtjev', icon: 'help_outline', to: '/pomoc/podnosenje-zahtjeva' },
       { title: 'Kontakt računovodstva', icon: 'mail_outline', to: '/pomoc/kontakt' },
@@ -92,6 +114,7 @@ const menuSections = [
   },
   {
     label: 'Financije',
+    roles: ['PROCUREMENT'],
     items: [
       { title: 'Kategorije', icon: 'category', to: '/kategorije' },
       { title: 'Službe i projekti', icon: 'account_tree', to: '/sluzbe-i-projekti' },
@@ -100,6 +123,7 @@ const menuSections = [
   },
   {
     label: 'Ostalo',
+    roles: ['PROCUREMENT'],
     items: [
       { title: 'Dobavljači', icon: 'local_shipping', to: '/dobavljaci' },
       { title: 'Izvještaji', icon: 'bar_chart', to: '/izvjestaji' },
@@ -107,12 +131,35 @@ const menuSections = [
   },
   {
     label: 'Administracija',
+    roles: [],
     items: [{ title: 'Korisnici', icon: 'group', to: '/korisnici' }],
   },
 ]
 
-// Placeholder dok se ne napravi prijava; tada ide iz AppUser tablice.
-const currentUser = { name: 'Marija Novak', role: 'Operator' }
+const auth = useAuthStore()
+const router = useRouter()
+
+// Administrator vidi sve; ostalima se prikazuju samo sekcije za njihovu rolu.
+// Ovo je samo sucelje - rute cuva guard, a podatke server.
+const visibleSections = computed(() =>
+  menuSections.filter(
+    (section) =>
+      section.roles === null || auth.roleCode === 'ADMIN' || section.roles.includes(auth.roleCode),
+  ),
+)
+
+const loggingOut = ref(false)
+
+async function logout() {
+  loggingOut.value = true
+
+  try {
+    await auth.logout()
+    await router.replace('/prijava')
+  } finally {
+    loggingOut.value = false
+  }
+}
 
 const leftDrawerOpen = ref(true)
 

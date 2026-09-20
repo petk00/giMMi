@@ -27,6 +27,34 @@ export async function queryOne(sql, params = []) {
   return rows[0] ?? null
 }
 
+// Zahtjev, njegove stavke i zapis u povijesti moraju nastati zajedno ili nikako.
+export async function withTransaction(work) {
+  const connection = await pool.getConnection()
+
+  try {
+    await connection.beginTransaction()
+
+    const result = await work({
+      query: async (sql, params = []) => {
+        const [rows] = await connection.execute(sql, params)
+        return rows
+      },
+      queryOne: async (sql, params = []) => {
+        const [rows] = await connection.execute(sql, params)
+        return rows[0] ?? null
+      },
+    })
+
+    await connection.commit()
+    return result
+  } catch (err) {
+    await connection.rollback()
+    throw err
+  } finally {
+    connection.release()
+  }
+}
+
 export async function ping() {
   const connection = await pool.getConnection()
   try {
