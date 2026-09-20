@@ -151,11 +151,13 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { useQuasar } from 'quasar'
 
 import { gimmiApi } from 'src/services/gimmi-api'
 
 const $q = useQuasar()
+const route = useRoute()
 
 const currencyFormat = new Intl.NumberFormat('hr-HR', { style: 'currency', currency: 'EUR' })
 const dateFormat = new Intl.DateTimeFormat('hr-HR')
@@ -233,7 +235,8 @@ const columns = [
 const requests = ref([])
 const loading = ref(true)
 const error = ref(null)
-const tab = ref('u-obradi')
+// ruta moze odmah otvoriti odredjeni tab (npr. Nacrti iz izbornika)
+const tab = ref(route.meta.tab ?? 'u-obradi')
 
 const visibleRequests = computed(() =>
   requests.value.filter((request) => tabForStatus[request.status_code] === tab.value),
@@ -250,10 +253,13 @@ async function load() {
   try {
     requests.value = await gimmiApi.getMyPurchaseRequests()
 
-    // otvori tab u kojem zahtjevi zaista postoje
-    const firstWithRows = tabs.find((item) => countFor(item.name) > 0)
-    if (firstWithRows) {
-      tab.value = firstWithRows.name
+    // ako ruta ne trazi odredjeni tab, otvori onaj u kojem zahtjeva ima
+    if (route.meta.tab === undefined) {
+      const firstWithRows = tabs.find((item) => countFor(item.name) > 0)
+
+      if (firstWithRows) {
+        tab.value = firstWithRows.name
+      }
     }
   } catch (err) {
     error.value = err.response?.data?.error ?? `Dohvat zahtjeva nije uspio: ${err.message}`

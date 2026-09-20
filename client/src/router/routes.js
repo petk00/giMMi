@@ -20,6 +20,11 @@ const routes = [
         component: () => import('pages/MyRequestsPage.vue'),
         meta: { title: 'Moji zahtjevi' },
       },
+      {
+        path: 'nacrti',
+        component: () => import('pages/MyRequestsPage.vue'),
+        meta: { title: 'Nacrti', tab: 'nacrti' },
+      },
 
       // pregled stanja veze s bazom, nije u izborniku
       {
@@ -30,7 +35,7 @@ const routes = [
       {
         path: 'zahtjevi/novi',
         component: () => import('pages/NewRequestPage.vue'),
-        meta: { title: 'Novi zahtjev' },
+        meta: { title: 'Novi zahtjev', hideGlobalActions: true },
       },
       { path: 'zahtjevi/:id', component: placeholder, meta: { title: 'Zahtjev' } },
       {

@@ -373,7 +373,7 @@ purchaseRequestsRouter.post('/:id/attachments', (req, res) => {
         }
 
         const documentType = await db.queryOne(
-          `select id_document_type, name from DocumentType where code = ?`,
+          `select id_document_type, code, name from DocumentType where code = ?`,
           [req.body.documentType ?? 'OTHER'],
         )
 
@@ -391,7 +391,11 @@ purchaseRequestsRouter.post('/:id/attachments', (req, res) => {
 
         const version = (previous?.last_version ?? 0) + 1
 
-        if (version > 1) {
+        // "Ostali prilog" skuplja razlicite dokumente (npr. usporedne ponude),
+        // pa novi ne ponistava prethodni; ostali tipovi se verzioniraju.
+        const replacesPrevious = documentType.code !== 'OTHER'
+
+        if (version > 1 && replacesPrevious) {
           await db.query(
             `update PurchaseRequestAttachment
                 set is_current = 0
