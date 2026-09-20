@@ -23,8 +23,14 @@
       </div>
     </div>
 
+    <q-banner v-if="error" class="bg-red-1 text-negative q-mb-md">{{ error }}</q-banner>
+
+    <div v-if="loading" class="row justify-center q-py-xl">
+      <q-spinner color="primary" size="36px" />
+    </div>
+
     <!-- novi korisnik nema nijedan zahtjev pa vidi samo dvije kartice gore -->
-    <template v-if="requests.length > 0">
+    <template v-else-if="requests.length > 0">
       <q-tabs
         v-model="tab"
         align="left"
@@ -51,20 +57,23 @@
         square
         :rows="visibleRequests"
         :columns="columns"
-        row-key="number"
+        row-key="id_purchase_request"
         hide-pagination
         :rows-per-page-options="[0]"
         no-data-label="Nema zahtjeva u ovoj skupini"
       >
         <template #body-cell-number="props">
-          <q-td :props="props" class="text-weight-medium">{{ props.row.number }}</q-td>
+          <q-td :props="props" class="text-weight-medium">{{ props.row.request_number }}</q-td>
         </template>
 
         <template #body-cell-subject="props">
           <q-td :props="props">
-            <div>{{ props.row.subject }}</div>
-            <div v-if="props.row.source" class="text-caption text-grey-7">
-              {{ props.row.source }}
+            <div>{{ props.row.justification || '—' }}</div>
+            <div class="text-caption text-grey-7">
+              {{ props.row.source === 'OFFER' ? 'iz ponude' : 'iz kataloga' }}
+              <template v-if="props.row.assigned_to_name">
+                · {{ props.row.assigned_to_name }}
+              </template>
             </div>
           </q-td>
         </template>
@@ -74,16 +83,22 @@
             <q-chip
               dense
               outline
-              :color="statusColors[props.row.status] ?? 'grey-7'"
-              :label="props.row.status"
+              :color="statusColors[props.row.status_code] ?? 'grey-7'"
+              :label="props.row.status_name"
             />
-            <div v-if="props.row.note" class="text-caption text-grey-7">{{ props.row.note }}</div>
           </q-td>
         </template>
 
         <template #body-cell-action="props">
           <q-td :props="props" class="text-right">
-            <q-btn outline dense no-caps color="primary" :label="props.row.action" />
+            <q-btn
+              outline
+              dense
+              no-caps
+              color="primary"
+              :label="props.row.status_code === 'DRAFT' ? 'Uredi' : 'Otvori'"
+              :to="`/zahtjevi/${props.row.id_purchase_request}`"
+            />
           </q-td>
         </template>
       </q-table>
@@ -135,8 +150,10 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useQuasar } from 'quasar'
+
+import { gimmiApi } from 'src/services/gimmi-api'
 
 const $q = useQuasar()
 
@@ -160,6 +177,7 @@ const entryCards = [
   },
 ]
 
+// Tabovi grupiraju statuse: sve sto je u tijeku ide u "U obradi".
 const tabs = [
   { name: 'u-obradi', label: 'U obradi' },
   { name: 'zavrseni', label: 'Završeni' },
@@ -167,86 +185,84 @@ const tabs = [
   { name: 'odbijeni', label: 'Odbijeni' },
 ]
 
-const statusColors = {
-  'U obradi': 'blue-8',
-  'Čeka dopunu': 'orange-9',
-  Naručen: 'teal-8',
-  Nacrt: 'grey-7',
+const tabForStatus = {
+  DRAFT: 'nacrti',
+  SUBMITTED: 'u-obradi',
+  IN_PROGRESS: 'u-obradi',
+  NEEDS_INFO: 'u-obradi',
+  APPROVED: 'u-obradi',
+  ORDERED: 'u-obradi',
+  RECEIVED: 'u-obradi',
+  CLOSED: 'zavrseni',
+  REJECTED: 'odbijeni',
 }
 
-// Placeholder podaci - kasnije dolaze s /api/purchase-requests.
-const requests = [
-  {
-    number: 'ZN-2026-0184',
-    subject: 'Prijenosno računalo 14"',
-    source: 'iz ponude · Links d.o.o.',
-    amount: 1449,
-    submittedAt: '2026-09-04',
-    status: 'U obradi',
-    action: 'Otvori',
-    tab: 'u-obradi',
-  },
-  {
-    number: 'ZN-2026-0179',
-    subject: 'Toner HP 216A, 4 kom',
-    source: 'iz kataloga',
-    amount: 318.4,
-    submittedAt: '2026-08-28',
-    status: 'Čeka dopunu',
-    action: 'Dopuni',
-    tab: 'u-obradi',
-  },
-  {
-    number: 'ZN-2026-0171',
-    subject: 'Licenca za statistički paket',
-    source: '',
-    amount: 890,
-    submittedAt: '2026-08-19',
-    status: 'Naručen',
-    note: 'dostava do 22.09.',
-    action: 'Otvori',
-    tab: 'u-obradi',
-  },
-  {
-    number: 'ZN-2026-0190',
-    subject: 'Uredski stolac',
-    source: 'iz kataloga',
-    amount: 245,
-    submittedAt: '2026-09-12',
-    status: 'Nacrt',
-    action: 'Uredi',
-    tab: 'nacrti',
-  },
-]
+const statusColors = {
+  DRAFT: 'grey-7',
+  SUBMITTED: 'blue-8',
+  IN_PROGRESS: 'blue-8',
+  NEEDS_INFO: 'orange-9',
+  APPROVED: 'teal-8',
+  ORDERED: 'teal-8',
+  RECEIVED: 'teal-8',
+  CLOSED: 'grey-8',
+  REJECTED: 'red-8',
+}
 
 const columns = [
-  { name: 'number', label: 'Zahtjev', field: 'number', align: 'left' },
-  { name: 'subject', label: 'Predmet', field: 'subject', align: 'left' },
+  { name: 'number', label: 'Zahtjev', field: 'request_number', align: 'left' },
+  { name: 'subject', label: 'Predmet', field: 'justification', align: 'left' },
   {
     name: 'amount',
     label: 'Iznos',
-    field: 'amount',
+    field: 'total_amount',
     align: 'right',
-    format: (value) => currencyFormat.format(value),
+    format: (value) => currencyFormat.format(value ?? 0),
   },
   {
-    name: 'submittedAt',
+    name: 'createdAt',
     label: 'Podnesen',
-    field: 'submittedAt',
+    field: 'created_at',
     align: 'left',
     format: (value) => dateFormat.format(new Date(value)),
   },
-  { name: 'status', label: 'Status', field: 'status', align: 'left' },
-  { name: 'action', label: '', field: 'action', align: 'right' },
+  { name: 'status', label: 'Status', field: 'status_name', align: 'left' },
+  { name: 'action', label: '', field: 'id_purchase_request', align: 'right' },
 ]
 
+const requests = ref([])
+const loading = ref(true)
+const error = ref(null)
 const tab = ref('u-obradi')
 
-const visibleRequests = computed(() => requests.filter((request) => request.tab === tab.value))
+const visibleRequests = computed(() =>
+  requests.value.filter((request) => tabForStatus[request.status_code] === tab.value),
+)
 
 function countFor(name) {
-  return requests.filter((request) => request.tab === name).length
+  return requests.value.filter((request) => tabForStatus[request.status_code] === name).length
 }
+
+async function load() {
+  loading.value = true
+  error.value = null
+
+  try {
+    requests.value = await gimmiApi.getMyPurchaseRequests()
+
+    // otvori tab u kojem zahtjevi zaista postoje
+    const firstWithRows = tabs.find((item) => countFor(item.name) > 0)
+    if (firstWithRows) {
+      tab.value = firstWithRows.name
+    }
+  } catch (err) {
+    error.value = err.response?.data?.error ?? `Dohvat zahtjeva nije uspio: ${err.message}`
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(load)
 
 const offerDialog = ref(false)
 const offerFile = ref(null)

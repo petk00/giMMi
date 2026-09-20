@@ -37,6 +37,7 @@ U `db/` se drzi shema:
 db/schema.sql      # trenutno stanje sheme, izvezeno iz baze
 db/migrations/     # promjene sheme, kronoloski
 db/seed.sql        # sifrarnici bez kojih aplikacija ne radi
+db/seed-dev.sql    # razvojni korisnici, NE na pravi server
 ```
 
 Sifrarnici se ucitavaju iz `db/seed.sql` (`mysql -u root gimmi < db/seed.sql`).
@@ -63,8 +64,10 @@ mysqldump -u root --no-data --compact --skip-comments --set-gtid-purged=OFF \
 `AppUser` je jedina iznimka s prefiksom - `User` je rezervirana rijec u
 PostgreSQL-u, pa se izbjegava i ovdje; njezin PK ostaje `id_user`.
 
-`DepartmentBudget` i `ItemCategoryBudget` nisu odjel i kategorija nego njihov
-proracun za jednu fiskalnu godinu (unique po `(fk_fiscal_year, name)`).
+`Department` je trajna organizacijska jedinica i na nju se vezu korisnici;
+`DepartmentBudget` je iznos koji ta sluzba ima u jednoj fiskalnoj godini
+(unique po `(fk_department, fk_fiscal_year)`). `ItemCategoryBudget` je i dalje
+kategorija s limitom unutar godine.
 `PurchaseRequest` je slozenim stranim kljucem vezan na `(id_department_budget,
 fk_fiscal_year)`, pa ne moze pokazivati na proracun odjela iz druge godine.
 
@@ -77,20 +80,58 @@ trazi li prilozeni dokument, generira li ga i treba li komentar.
 | Prijelaz | Uvjet | Nastaje |
 | --- | --- | --- |
 | `DRAFT` -> `SUBMITTED` | ponuda, samo ako je `source = OFFER` | zahtjev za nabavom |
-| `SUBMITTED` -> `NEEDS_INFO` | komentar | - |
+| `SUBMITTED` -> `IN_PROGRESS` | - (preuzimanje zahtjeva) | - |
+| `IN_PROGRESS` -> `NEEDS_INFO` | komentar | - |
 | `NEEDS_INFO` -> `SUBMITTED` | ponuda, samo ako je `source = OFFER` | nova verzija zahtjeva |
-| `SUBMITTED` -> `APPROVED` | - | - |
-| `SUBMITTED` -> `REJECTED` | komentar | - |
+| `IN_PROGRESS` -> `APPROVED` | - | - |
+| `IN_PROGRESS` -> `REJECTED` | komentar | - |
 | `APPROVED` -> `ORDERED` | narudzbenica | - |
 | `ORDERED` -> `RECEIVED` | dostavnica | - |
+| `RECEIVED` -> `CLOSED` | - (kasnije: knjizenje) | - |
+
+`IN_PROGRESS` ne postavlja se rucno nego preuzimanjem zahtjeva: operater postaje
+`fk_assigned_to_user` i status se pomice iz `SUBMITTED`. Zavrsna stanja su
+`CLOSED` i `REJECTED`.
+
+Tko koji prijelaz smije, stoji u `StatusTransition.fk_role`: `SUBMITTER`
+podnosi i dopunjuje, `PROCUREMENT` obradjuje, odobrava, narucuje i zakljucuje.
+Prijelaz u `RECEIVED` nema role jer dostavnicu prilaze onaj tko je robu preuzeo.
+`ADMIN` smije sve i to se provjerava u kodu, ne pravilima.
 
 `PurchaseRequest.source` govori je li zahtjev nastao iz ponude dobavljaca
 (`OFFER`) ili iz kataloga s ugovorenim cijenama (`CATALOG`) - o tome ovisi je li
 ponuda uvjet za podnosenje. Zahtjev za nabavom generira sustav (`is_generated`),
 pa se pri svakoj dopuni sprema kao nova `version`, a stara ostaje zapisana.
 
-`GET /api/purchase-requests/:id` uz zahtjev vraca i `transitions` - popis koraka
-koji su s tog zahtjeva trenutno dopusteni, s uvjetima.
+`GET /api/purchase-requests/:id` uz zahtjev vraca:
+
+* `transitions` - koraci koji su s tog zahtjeva trenutno dopusteni, s uvjetima
+* `timeline` - log zivotnog vijeka: promjene statusa i prilozeni ili generirani
+  dokumenti, spojeni u jedan niz po vremenu (`event` je `STATUS`,
+  `DOCUMENT_ADDED` ili `DOCUMENT_GENERATED`)
+
+## Prijava
+
+Prijava vraca JWT u `httpOnly` kolacicu (`gimmi_token`), pa ga klijentski kod
+ne vidi ni ne sprema. Sve rute osim `/api/health` i `/api/auth/*` traze
+prijavljenog korisnika i vracaju 401 bez nje.
+
+| Metoda | Ruta | Opis |
+| --- | --- | --- |
+| POST | `/api/auth/login` | `{ email, password }`, postavlja kolacic |
+| POST | `/api/auth/logout` | brise kolacic |
+| GET | `/api/auth/me` | trenutno prijavljeni korisnik |
+
+Lozinke su bcrypt hashevi (`bcryptjs`, bez native builda). Tajna za potpis
+tokena je `JWT_SECRET` u `.env` - u produkciji je obavezno promijeniti.
+
+Razvojni korisnici iz `db/seed-dev.sql`, lozinka svima `123456`:
+
+| E-mail | Rola |
+| --- | --- |
+| `admin@veleri.hr` | Administrator |
+| `submitter@veleri.hr` | Podnositelj |
+| `procurement@veleri.hr` | Operater nabave |
 
 ## Endpointi
 
@@ -98,13 +139,21 @@ koji su s tog zahtjeva trenutno dopusteni, s uvjetima.
 | --- | --- | --- |
 | GET | `/api/health` | status servera i ping baze (503 ako baza pada) |
 | GET | `/api/fiscal-years` | fiskalne godine s budzetom |
-| GET | `/api/department-budgets?fiscalYear=` | odjeli s limitima po godini |
+| GET | `/api/departments` | sluzbe (trajne organizacijske jedinice) |
+| GET | `/api/department-budgets?fiscalYear=` | proracuni sluzbi po godini |
 | GET | `/api/item-category-budgets?fiscalYear=` | kategorije stavki s limitima po godini |
 | GET | `/api/purchase-request-statuses` | statusi zahtjeva |
 | GET | `/api/document-types` | tipovi dokumenata |
 | GET | `/api/users` | korisnici s rolom (bez `password_hash`) |
-| GET | `/api/purchase-requests?fiscalYear=&status=&departmentBudget=` | lista zahtjeva |
-| GET | `/api/purchase-requests/:id` | zahtjev + stavke, povijest statusa i prilozi |
+| GET | `/api/purchase-requests?fiscalYear=&status=&departmentBudget=&mine=1` | lista zahtjeva; `mine=1` samo svoje |
+| POST | `/api/purchase-requests` | novi nacrt sa stavkama |
+| GET | `/api/purchase-requests/:id` | zahtjev + stavke, timeline, prilozi, dopusteni koraci |
+| POST | `/api/purchase-requests/:id/transitions` | `{ toStatus, comment }`, promjena statusa |
+
+Kod stvaranja zahtjeva klijent salje samo `source`, `justification` i `items`.
+Fiskalnu godinu i proracun sluzbe server uzima iz prijavljenog korisnika, a broj
+zahtjeva (`ZN-<godina>-<redni broj>`) dodjeljuje unutar transakcije, pa dva
+istovremena zahtjeva ne mogu dobiti isti broj.
 
 ## Struktura
 

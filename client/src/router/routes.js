@@ -3,6 +3,12 @@ const placeholder = () => import('pages/PlaceholderPage.vue')
 
 const routes = [
   {
+    path: '/prijava',
+    component: () => import('pages/LoginPage.vue'),
+    meta: { title: 'Prijava', public: true },
+  },
+
+  {
     path: '/',
     component: () => import('layouts/MainLayout.vue'),
     children: [
@@ -22,6 +28,7 @@ const routes = [
         meta: { title: 'Pregled' },
       },
       { path: 'zahtjevi/novi', component: placeholder, meta: { title: 'Novi zahtjev' } },
+      { path: 'zahtjevi/:id', component: placeholder, meta: { title: 'Zahtjev' } },
       { path: 'nabava/zahtjevi', component: placeholder, meta: { title: 'Zahtjevi' } },
       { path: 'narudzbe', component: placeholder, meta: { title: 'Narudžbe' } },
 

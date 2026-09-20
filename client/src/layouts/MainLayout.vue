@@ -50,15 +50,31 @@
 
       <q-separator />
 
-      <!-- prijavljeni korisnik - staticki dok ne postoji prijava -->
       <q-item class="q-py-md">
         <q-item-section avatar>
           <q-avatar size="36px" color="grey-3" text-color="grey-8" icon="person" />
         </q-item-section>
 
         <q-item-section>
-          <q-item-label class="text-weight-medium">{{ currentUser.name }}</q-item-label>
-          <q-item-label caption>{{ currentUser.role }}</q-item-label>
+          <q-item-label class="text-weight-medium">{{ auth.fullName }}</q-item-label>
+          <q-item-label caption>
+            {{ auth.user?.role_name }}
+            <template v-if="auth.user?.department_name">
+              · {{ auth.user.department_name }}
+            </template>
+          </q-item-label>
+        </q-item-section>
+
+        <q-item-section side>
+          <q-btn
+            flat
+            dense
+            round
+            icon="logout"
+            aria-label="Odjava"
+            :loading="loggingOut"
+            @click="logout"
+          />
         </q-item-section>
       </q-item>
     </q-drawer>
@@ -71,6 +87,9 @@
 
 <script setup>
 import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+
+import { useAuthStore } from 'src/stores/auth'
 
 const menuSections = [
   {
@@ -116,8 +135,21 @@ const menuSections = [
   },
 ]
 
-// Placeholder dok se ne napravi prijava; tada ide iz AppUser tablice.
-const currentUser = { name: 'Marija Novak', role: 'Operator' }
+const auth = useAuthStore()
+const router = useRouter()
+
+const loggingOut = ref(false)
+
+async function logout() {
+  loggingOut.value = true
+
+  try {
+    await auth.logout()
+    await router.replace('/prijava')
+  } finally {
+    loggingOut.value = false
+  }
+}
 
 const leftDrawerOpen = ref(true)
 

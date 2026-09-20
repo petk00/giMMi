@@ -5,6 +5,11 @@ export const config = {
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean),
+  auth: {
+    secret: process.env.JWT_SECRET || 'gimmi-dev-secret',
+    ttl: process.env.JWT_TTL || '12h',
+    ttlSeconds: Number(process.env.JWT_TTL_SECONDS) || 12 * 60 * 60,
+  },
   db: {
     host: process.env.DB_HOST || '127.0.0.1',
     port: Number(process.env.DB_PORT) || 3306,
