@@ -13,7 +13,13 @@
       </q-toolbar>
     </q-header>
 
-    <q-drawer v-model="leftDrawerOpen" show-if-above bordered class="column no-wrap">
+    <q-drawer
+      v-model="leftDrawerOpen"
+      show-if-above
+      bordered
+      :width="sideWidth"
+      class="column no-wrap"
+    >
       <div class="drawer-header row items-center q-px-md">
         <img alt="giMMi" src="~assets/gimmi-logo.jpg" class="brand-logo" />
       </div>
@@ -111,6 +117,9 @@ import { gimmiApi } from 'src/services/gimmi-api'
 import { useAuthStore } from 'src/stores/auth'
 
 const auth = useAuthStore()
+
+// Ladica je siroka kao i stupac s karticama desno (--gimmi-side-width).
+const sideWidth = 280
 const router = useRouter()
 
 const menuSections = [

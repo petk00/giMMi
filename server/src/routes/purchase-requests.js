@@ -12,6 +12,32 @@ export const purchaseRequestsRouter = Router()
 // poziv na API ne mora doci kroz obrazac.
 const JUSTIFICATION_MAX_LENGTH = 500
 
+/**
+ * Kad zahtjev nastaje iz ponude, iznosi su prepisani s nje i mjerodavni su -
+ * server ih tada ne izvodi iz stavki, jer bi zaokruzivanje jedinicne cijene
+ * dalo drugi iznos od onoga sto dobavljac trazi. Iz kataloga takvog izvora
+ * nema, pa se racuna po stavkama.
+ */
+function requestAmounts(items, amounts) {
+  const given = {
+    net: Number(amounts?.net),
+    vat: Number(amounts?.vat),
+    total: Number(amounts?.total),
+  }
+
+  if (Object.values(given).every((value) => Number.isFinite(value) && value >= 0)) {
+    return given
+  }
+
+  const net = items.reduce((sum, item) => sum + item.quantity * (item.unit_price ?? 0), 0)
+  const vat = items.reduce(
+    (sum, item) => sum + (item.quantity * (item.unit_price ?? 0) * (item.vat_rate ?? 25)) / 100,
+    0,
+  )
+
+  return { net, vat, total: net + vat }
+}
+
 const listSql = `
   select pr.id_purchase_request, pr.request_number, pr.source,
          pr.net_amount, pr.vat_amount, pr.total_amount,
@@ -68,6 +94,7 @@ purchaseRequestsRouter.post('/', async (req, res) => {
     departmentBudget = null,
     justification = null,
     items = [],
+    amounts = null,
   } = req.body ?? {}
 
   if (!['OFFER', 'CATALOG'].includes(source)) {
@@ -137,13 +164,7 @@ purchaseRequestsRouter.post('/', async (req, res) => {
         `select id_purchase_request_status from PurchaseRequestStatus where code = 'DRAFT'`,
       )
 
-      const net = items.reduce((sum, item) => sum + item.quantity * (item.unit_price ?? 0), 0)
-      const vat = items.reduce(
-        (sum, item) =>
-          sum + (item.quantity * (item.unit_price ?? 0) * (item.vat_rate ?? 25)) / 100,
-        0,
-      )
-      const total = net + vat
+      const { net, vat, total } = requestAmounts(items, amounts)
 
       const result = await db.query(
         `insert into PurchaseRequest
@@ -175,7 +196,8 @@ purchaseRequestsRouter.post('/', async (req, res) => {
            values (?, ?, ?, ?, ?, ?)`,
           [
             requestId,
-            item.fk_item_category_budget,
+            // kategoriju dodjeljuje nabava pri obradi, podnositelj je ne bira
+            item.fk_item_category_budget ?? null,
             item.item_name.trim(),
             item.quantity,
             item.unit_price ?? 0,
@@ -221,7 +243,7 @@ purchaseRequestsRouter.get('/:id', async (req, res) => {
               pri.quantity * pri.unit_price as line_total,
               pri.fk_item_category_budget, cat.name as item_category_name
          from PurchaseRequestItem pri
-         join ItemCategoryBudget cat on cat.id_item_category_budget = pri.fk_item_category_budget
+         left join ItemCategoryBudget cat on cat.id_item_category_budget = pri.fk_item_category_budget
         where pri.fk_purchase_request = ?
         order by pri.id_purchase_request_item`,
       [req.params.id],

@@ -21,6 +21,13 @@ offersRouter.post('/read', (req, res) => {
       return res.status(400).json({ error: 'Nedostaje datoteka ponude' })
     }
 
+    // Samo PDF: slike model cita osjetno losije, pa se ne primaju kao ponuda.
+    if (req.file.mimetype !== 'application/pdf') {
+      await unlink(req.file.path).catch(() => {})
+
+      return res.status(400).json({ error: 'Ponuda mora biti PDF' })
+    }
+
     try {
       res.json(await readOffer(req.file))
     } catch (err) {

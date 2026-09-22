@@ -117,7 +117,7 @@ CREATE TABLE `PurchaseRequestAttachment` (
 CREATE TABLE `PurchaseRequestItem` (
   `id_purchase_request_item` int NOT NULL AUTO_INCREMENT,
   `fk_purchase_request` int NOT NULL,
-  `fk_item_category_budget` int NOT NULL,
+  `fk_item_category_budget` int DEFAULT NULL,
   `item_name` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `quantity` int NOT NULL DEFAULT '1',
   `unit_price` decimal(14,2) NOT NULL DEFAULT '0.00',

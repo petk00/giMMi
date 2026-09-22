@@ -152,7 +152,7 @@ Razvojni korisnici iz `db/seed-dev.sql`, lozinka svima `123456`:
 | GET | `/api/document-types` | tipovi dokumenata |
 | GET | `/api/users` | korisnici s rolom (bez `password_hash`) |
 | GET | `/api/purchase-requests?fiscalYear=&status=&departmentBudget=&mine=1` | lista zahtjeva; `mine=1` samo svoje |
-| POST | `/api/purchase-requests` | novi nacrt sa stavkama |
+| POST | `/api/purchase-requests` | novi nacrt sa stavkama; `amounts` prepisuje iznose |
 | GET | `/api/purchase-requests/:id` | zahtjev + stavke, timeline, prilozi, dopusteni koraci |
 | POST | `/api/purchase-requests/:id/attachments` | multipart: `file` + `documentType` |
 | POST | `/api/purchase-requests/:id/transitions` | `{ toStatus, comment }`, promjena statusa |
@@ -165,9 +165,22 @@ vraca prijedlog `{ supplier, items, netTotal, model, tookMs }`. Zahtjev tada
 jos ne postoji, pa se datoteka koristi samo za ocitavanje i odmah brise -
 isti dokument klijent poslije salje kao prilog nacrta.
 
-Slike (JPG, PNG) idu ravno u model. PDF se prvo renderira u PNG preko
-`qlmanage`, koji na macOS-u postoji bez instalacije; na drugom sustavu tu
-treba zamjena (npr. `pdftoppm` iz poplera).
+Prima se samo PDF - slike s mobitela model cita osjetno losije, pa ih ruta
+odbija s 400. PDF se renderira u PNG preko `qlmanage`, koji na macOS-u postoji
+bez instalacije; na drugom sustavu tu treba zamjena (npr. `pdftoppm` iz
+poplera). Citanje slike je i dalje u `offer-reader.js` ako ogranicenje padne.
+
+Iznosi (`netTotal`, `vatAmount`, `totalWithVat`) prepisuju se s ponude i takvi
+idu u bazu: klijent ih salje kao `amounts` u `POST /api/purchase-requests`, a
+server ih tada ne izvodi iz stavki. Bez `amounts` - primjerice kod zahtjeva iz
+kataloga - racuna se po stavkama kao i prije.
+
+Iznose provjerava `reconcileAmounts`. Model zna uzeti iznos s PDV-om kao
+osnovicu pa PDV dodati jos jednom; stopa to otkriva, jer PDV odgovara jednoj od
+zakonskih stopa (25, 13, 5 %) samo na pravoj osnovici. Kad ni stopa ne pomogne,
+oslonac je zbroj iznosa stavki (`itemsSum`), koji dolazi iz tablice a ne iz
+podnozja. Ispravljen iznos nosi `amountsCorrected: true`, sto sucelje prikaze
+uz tu ponudu - rijec je o novcu, pa se ne mijenja tiho.
 
 Model vraca JSON po zadanoj shemi (Ollamin `format`), pa odgovor ne treba
 parsirati iz teksta. Ocitano je prijedlog - kategoriju stavke i dalje bira
