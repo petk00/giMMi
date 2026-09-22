@@ -40,7 +40,7 @@ const routes = [
       { path: 'zahtjevi/:id', component: placeholder, meta: { title: 'Zahtjev' } },
       {
         path: 'nabava/zahtjevi',
-        component: placeholder,
+        component: () => import('pages/ProcurementRequestsPage.vue'),
         meta: { title: 'Zahtjevi', roles: ['PROCUREMENT'] },
       },
       {
