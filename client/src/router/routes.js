@@ -37,7 +37,11 @@ const routes = [
         component: () => import('pages/NewRequestPage.vue'),
         meta: { title: 'Novi zahtjev', hideGlobalActions: true },
       },
-      { path: 'zahtjevi/:id', component: placeholder, meta: { title: 'Zahtjev' } },
+      {
+        path: 'zahtjevi/:id',
+        component: () => import('pages/RequestDetailPage.vue'),
+        meta: { title: 'Zahtjev' },
+      },
       {
         path: 'nabava/zahtjevi',
         component: () => import('pages/ProcurementRequestsPage.vue'),

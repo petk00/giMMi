@@ -1,21 +1,56 @@
 // app global css in SCSS form
 
-// Crta ispod logotipa u ladici pada na ovoj visini, pa sadrzaj stranica krece
-// od iste linije.
 :root {
-  --gimmi-drawer-header: 60px;
-  // ista sirina za ladicu lijevo i stupac s karticama desno
   --gimmi-side-width: 280px;
+  --gimmi-page-background: #f6f8fa;
+  --gimmi-border: #e5e9ee;
+  --gimmi-text: #1f2937;
 }
 
-// Ladica se vidi tek od md navise; na uzim ekranima vrijedi padding stranice.
+body {
+  color: var(--gimmi-text);
+  background: var(--gimmi-page-background);
+}
+
+.q-layout,
+.q-page-container,
+.q-page {
+  background: var(--gimmi-page-background);
+}
+
+.q-drawer {
+  background: #fff;
+  border-color: var(--gimmi-border);
+}
+
+.q-header.app-header {
+  color: var(--gimmi-text);
+  background: #fff;
+  border-bottom: 1px solid var(--gimmi-border);
+  box-shadow: none;
+}
+
+.q-card {
+  border-color: var(--gimmi-border);
+  border-radius: 12px;
+}
+
+.q-table {
+  border-color: var(--gimmi-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.q-field--outlined .q-field__control:before {
+  border-color: var(--gimmi-border);
+}
+
+.q-btn {
+  border-radius: 8px;
+}
+
 @media (min-width: 1024px) {
   .q-page-container .q-page {
-    padding-top: var(--gimmi-drawer-header);
-  }
-
-  // Stranica s vlastitim zaglavljem sama popunjava tu traku.
-  .q-page-container .q-page.with-page-header {
-    padding-top: 0;
+    padding-top: 24px;
   }
 }

@@ -182,15 +182,30 @@ oslonac je zbroj iznosa stavki (`itemsSum`), koji dolazi iz tablice a ne iz
 podnozja. Ispravljen iznos nosi `amountsCorrected: true`, sto sucelje prikaze
 uz tu ponudu - rijec je o novcu, pa se ne mijenja tiho.
 
-Model vraca JSON po zadanoj shemi (Ollamin `format`), pa odgovor ne treba
-parsirati iz teksta. Ocitano je prijedlog - kategoriju stavke i dalje bira
-podnositelj, a zbroj stavki se usporedjuje s iznosom s ponude.
+Modelu se salju zasebne system i user poruke; PDF stranica se prosljedjuje kao
+slika u user poruci. Ollamin `format: "json"` ogranicava izlaz na JSON, a system
+poruka zadaje strukturu objekta. Zavrsni JSON cita se iz `message.content`;
+polje `thinking` nije odgovor i ne parsira se. Nedostajuci numericki podaci
+dopusteni su kao `null`. Za cijelu stranicu ponude model dobiva kontekst od
+8192 tokena i moze generirati do 4096 tokena. Ocitano je prijedlog - kategoriju
+stavke i dalje bira podnositelj, a zbroj stavki se usporedjuje s iznosom s ponude.
+
+Za `qwen3-vl:8b` postoji i lokalni alias s instruct renderer-om, ako se zeli
+koristiti taj model bez thinking izlaza:
+
+```bash
+cd server
+ollama create gimmi-qwen3-vl:8b-instruct -f Modelfile.qwen3-vl
+```
+
+`OLLAMA_MODEL` po defaultu koristi taj alias.
+Zahtjev zavrsava assistant prefiksom `</think>`, cime se Qwenov kanal
+razmisljanja zatvara prije generiranja JSON odgovora.
 
 | Varijabla | Zadano |
 | --- | --- |
 | `OLLAMA_URL` | `http://127.0.0.1:11434` |
-| `OLLAMA_MODEL` | `gemma4:e2b` |
-| `OLLAMA_TIMEOUT_MS` | `120000` |
+| `OLLAMA_MODEL` | `qwen3.5:9b` |
 | `OFFER_RENDER_WIDTH` | `1700` |
 
 ### Prilozi

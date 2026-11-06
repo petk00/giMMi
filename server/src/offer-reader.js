@@ -3,11 +3,13 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import { Agent, fetch } from 'undici'
 
 import { config } from './config.js'
 import { uploadDir } from './uploads.js'
 
 const run = promisify(execFile)
+const ollamaAgent = new Agent({ headersTimeout: 0, bodyTimeout: 0 })
 
 export class OfferReadError extends Error {
   constructor(message, status = 502) {
@@ -16,56 +18,26 @@ export class OfferReadError extends Error {
   }
 }
 
-// Model vraca tocno ovu strukturu; bez sheme bi vracao tekst koji treba parsirati.
-const responseSchema = {
-  type: 'object',
-  properties: {
-    supplier: {
-      type: 'object',
-      properties: {
-        name: { type: 'string' },
-        oib: { type: 'string' },
-        offerNumber: { type: 'string' },
-        issuedAt: { type: 'string' },
-        validUntil: { type: 'string' },
-      },
-      // trazeni su svi: model inace preskoci polje koje mu je manje ocito
-      required: ['name', 'oib', 'offerNumber', 'issuedAt', 'validUntil'],
-    },
-    items: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          name: { type: 'string' },
-          quantity: { type: 'number' },
-          unitPrice: { type: 'number' },
-          lineTotal: { type: 'number' },
-        },
-        required: ['name', 'quantity', 'unitPrice', 'lineTotal'],
-      },
-    },
-    netTotal: { type: 'number' },
-    vatAmount: { type: 'number' },
-    totalWithVat: { type: 'number' },
-  },
-  required: ['supplier', 'items', 'netTotal', 'vatAmount', 'totalWithVat'],
-}
+const systemPrompt = `You are an expert document parser. Your job is to extract structured data from Croatian offer/invoice images into a clean JSON format.
 
-const prompt = [
-  'Ovo je ponuda dobavljaca. Izvuci:',
-  '- dobavljaca (naziv, OIB ako pise),',
-  '- broj ponude, datum izdavanja i datum do kojeg vrijedi,',
-  '- sve stavke: naziv, kolicinu, jedinicnu cijenu i iznos stavke (stupac Iznos),',
-  '- zbroj bez PDV-a (netTotal), iznos PDV-a (vatAmount) i ukupno za uplatu',
-  '  (totalWithVat) - sve tri onako kako pisu na ponudi, ne racunaj ih sam.',
-  'Za lineTotal prepisi iznos koji na ponudi pise u retku te stavke, onakav kakav',
-  'jest - vec ukljucuje rabat ako ga ima. Ne racunaj ga sam.',
-  'Cijene su u eurima; decimalni zarez pretvori u tocku, a tisucicu izbaci.',
-  'Datume pisi u obliku DD.MM.GGGG.',
-  'Ne izmisljaj podatke: ono cega na ponudi nema ostavi kao prazan string.',
-  'Vrati samo JSON.',
-].join('\n')
+CRITICAL INSTRUCTIONS:
+1. Extract supplier info, offer header (offer number, dates), all line items, and totals.
+2. For prices and totals: Do not calculate or guess anything. Copy exact figures from the image.
+3. Number formatting: Convert European decimal comma (,) to dot (.). Remove thousand separators (.) entirely (e.g., "1.250,50" -> 1250.50).
+4. Line totals: Copy the exact line total ("Iznos" column) for each item as written (which already includes discounts).
+5. Missing values: Use empty string "" for string fields and null for missing numbers if not present on the document. Do not invent data.
+6. Return ONLY a valid JSON object with exactly this structure:
+{
+  "supplier": { "name": "", "oib": "", "offerNumber": "", "issuedAt": "", "validUntil": "" },
+  "items": [{ "name": "", "quantity": null, "unitPrice": null, "lineTotal": null }],
+  "netTotal": null,
+  "vatAmount": null,
+  "totalWithVat": null
+}
+Use an empty items array when there are no line items. No conversational text or extra explanations.`
+
+const userPrompt = `Ovo je slika ponude dobavljača. Izvuci sve podatke i stavke iz nje prema zadanoj JSON šemi.
+Datume zapiši u obliku DD.MM.GGGG.`
 
 /**
  * PDF nije slika, pa ga prvo treba rasterizirati. qlmanage je na macOS-u
@@ -98,22 +70,29 @@ async function askModel(imageBase64) {
     response = await fetch(`${config.ollama.url}/api/chat`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      signal: AbortSignal.timeout(config.ollama.timeoutMs),
+      dispatcher: ollamaAgent,
       body: JSON.stringify({
         model: config.ollama.model,
         stream: false,
         think: false,
-        format: responseSchema,
-        options: { temperature: 0 },
-        messages: [{ role: 'user', content: prompt, images: [imageBase64] }],
+        format: 'json',
+        options: { temperature: 0, num_ctx: 8192, num_predict: 4096 },
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt, images: [imageBase64] },
+          ...(config.ollama.model === 'gimmi-qwen3-vl:8b-instruct'
+            ? [{ role: 'assistant', content: '</think>\n' }]
+            : []),
+        ],
       }),
     })
   } catch (err) {
-    if (err.name === 'TimeoutError') {
-      throw new OfferReadError('Ocitavanje ponude je predugo trajalo', 504)
-    }
+    const cause = err.cause
+    const detail = cause?.code
+      ? `${cause.code}${cause.message ? `: ${cause.message}` : ''}`
+      : err.message
 
-    throw new OfferReadError(`Model nije dostupan na ${config.ollama.url}: ${err.message}`, 503)
+    throw new OfferReadError(`Model nije dostupan na ${config.ollama.url}: ${detail}`, 503)
   }
 
   const data = await response.json()
@@ -122,17 +101,31 @@ async function askModel(imageBase64) {
     throw new OfferReadError(data.error ?? `Model je vratio ${response.status}`)
   }
 
-  // Modeli koji "misle" uz think:false znaju odgovor staviti u thinking, a
-  // content ostaviti prazan; ponegdje jos i umotan u ```json ogradu.
-  const raw = (data.message?.content?.trim() || data.message?.thinking?.trim() || '').replace(
-    /^```(?:json)?\s*|\s*```$/g,
-    '',
-  )
+  const content = data.message?.content?.trim()
+
+  if (!content) {
+    throw new OfferReadError(
+      data.done_reason === 'length'
+        ? 'Model je dosegao limit tokena prije nego sto je vratio JSON'
+        : 'Model nije vratio JSON u zavrsnom odgovoru',
+    )
+  }
+
+  const raw = content.replace(/^```(?:json)?\s*|\s*```$/g, '')
 
   try {
-    return { reading: JSON.parse(raw), tookMs: Date.now() - started }
+    return {
+      reading: JSON.parse(raw),
+      tookMs: Date.now() - started,
+      inputTokens: data.prompt_eval_count ?? null,
+      outputTokens: data.eval_count ?? null,
+    }
   } catch {
-    throw new OfferReadError('Model nije vratio ispravan JSON')
+    throw new OfferReadError(
+      data.done_reason === 'length'
+        ? 'Model je dosegao limit tokena prije nego sto je zavrsio JSON'
+        : 'Model nije vratio ispravan JSON',
+    )
   }
 }
 
@@ -282,8 +275,14 @@ export async function readOffer({ path, mimetype, originalname }) {
   const bytes =
     mimetype === 'application/pdf' ? await pdfToPng(path) : await readFile(path)
 
-  const { reading, tookMs } = await askModel(bytes.toString('base64'))
-  const result = { ...normalise(reading), model: config.ollama.model, tookMs }
+  const { reading, tookMs, inputTokens, outputTokens } = await askModel(bytes.toString('base64'))
+  const result = {
+    ...normalise(reading),
+    model: config.ollama.model,
+    tookMs,
+    inputTokens,
+    outputTokens,
+  }
 
   await dumpReading({ originalname, reading, result })
 

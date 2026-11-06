@@ -1,15 +1,12 @@
 <template>
   <q-page class="bg-grey-2 with-page-header">
-    <!-- Zaglavlje stoji u traci logotipa, kao i na novom zahtjevu. -->
     <div class="page-header row items-center no-wrap q-px-lg q-gutter-sm">
-      <div class="text-h6 col">Zahtjevi</div>
-
       <q-input
         v-model="search"
         dense
         outlined
         bg-color="white"
-        placeholder="Broj, podnositelj, artikl"
+        placeholder="Broj, podnositelj, svrha"
         class="search-field"
       >
         <template #prepend>
@@ -41,7 +38,8 @@
     </div>
 
     <div class="q-px-lg q-pb-lg">
-      <!-- Brojke su zasad izmisljene; dolaze sa servera kad se ekran spoji. -->
+      <q-banner v-if="error" class="bg-red-1 text-negative q-mb-md">{{ error }}</q-banner>
+
       <div class="row q-col-gutter-md q-mb-lg">
         <div v-for="card in summaryCards" :key="card.label" class="col-12 col-sm-6 col-lg-3">
           <q-card flat bordered class="full-height">
@@ -65,8 +63,8 @@
         <q-tab v-for="item in tabs" :key="item.name" :name="item.name">
           <div class="row items-center q-gutter-xs">
             <span>{{ item.label }}</span>
-            <q-badge v-if="item.count" color="grey-4" text-color="grey-9" rounded>
-              {{ item.count }}
+            <q-badge v-if="countFor(item.name)" color="grey-4" text-color="grey-9" rounded>
+              {{ countFor(item.name) }}
             </q-badge>
           </div>
         </q-tab>
@@ -83,39 +81,58 @@
         selection="multiple"
         :rows="visibleRows"
         :columns="columns"
-        row-key="number"
-        class="bg-white"
+        row-key="id_purchase_request"
+        class="bg-white requests-table"
+        :loading="loading"
         no-data-label="Nema zahtjeva u ovoj skupini"
+        @row-click="onRowClick"
       >
         <template #body-cell-number="props">
           <q-td :props="props">
-            <div class="text-weight-medium">{{ props.row.number }}</div>
-            <div class="text-caption text-grey-7">{{ props.row.source }}</div>
+            <div class="text-weight-medium">{{ props.row.request_number }}</div>
+            <div class="text-caption text-grey-7">
+              {{ props.row.source === 'OFFER' ? 'ponuda' : 'katalog' }}
+            </div>
           </q-td>
         </template>
 
         <template #body-cell-requester="props">
           <q-td :props="props">
-            <div>{{ props.row.requester }}</div>
-            <div class="text-caption text-grey-7">{{ props.row.unit }}</div>
+            <div>{{ props.row.created_by_name }}</div>
+            <div class="text-caption text-grey-7">{{ props.row.department_name }}</div>
           </q-td>
         </template>
 
-        <template #body-cell-coverage="props">
+        <template #body-cell-subject="props">
+          <q-td :props="props">
+            <div class="subject-cell ellipsis">{{ props.row.justification || '—' }}</div>
+          </q-td>
+        </template>
+
+        <template #body-cell-status="props">
           <q-td :props="props">
             <q-chip
               dense
               outline
-              :color="coverageColors[props.row.coverage.state]"
-              :class="{ 'coverage-chip--missing': props.row.coverage.state === 'missing' }"
-              :label="props.row.coverage.label"
+              :color="statusColors[props.row.status_code] ?? 'grey-7'"
+              :label="props.row.status_name"
             />
+            <div v-if="props.row.assigned_to_name" class="text-caption text-grey-7">
+              {{ props.row.assigned_to_name }}
+            </div>
           </q-td>
         </template>
 
         <template #body-cell-action="props">
           <q-td :props="props" class="text-right">
-            <q-btn outline dense no-caps color="primary" label="Obradi" />
+            <q-btn
+              outline
+              dense
+              no-caps
+              color="primary"
+              label="Obradi"
+              @click.stop="openRequest(props.row)"
+            />
           </q-td>
         </template>
 
@@ -175,7 +192,12 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
+
+import { gimmiApi } from 'src/services/gimmi-api'
+
+const router = useRouter()
 
 const currencyFormat = new Intl.NumberFormat('hr-HR', { style: 'currency', currency: 'EUR' })
 
@@ -183,182 +205,194 @@ const search = ref('')
 const department = ref(null)
 const period = ref(null)
 
-const departmentOptions = ['Sve službe', 'Služba za IT', 'Služba za nastavu', 'Projekti']
-const periodOptions = ['Ovaj mjesec', 'Prošli mjesec', 'Ova godina']
+const allDepartments = 'Sve službe'
+const periodOptions = ['Sva razdoblja', 'Ovaj mjesec', 'Prošli mjesec', 'Ova godina']
 
-const summaryCards = [
-  { label: 'Novi, nedodijeljeni', value: '7', caption: 'najstariji čeka 3 dana' },
-  { label: 'Čeka dopunu', value: '4', caption: '2 duže od tjedna' },
-  { label: 'Odobreno ovaj mjesec', value: currencyFormat.format(18402), caption: '41 zahtjev' },
-  { label: 'Bez pokrića', value: '2', caption: 'kategorija u minusu' },
-]
-
+// Svaki tab je jedan status; nacrti ne idu u nabavu pa ih nema ni pod "Svi".
 const tabs = [
-  { name: 'novi', label: 'Novi', count: 7 },
-  { name: 'u-obradi', label: 'U obradi', count: 12 },
-  { name: 'ceka-dopunu', label: 'Čeka dopunu', count: 4 },
-  { name: 'odobreni', label: 'Odobreni' },
-  { name: 'naruceni', label: 'Naručeni' },
-  { name: 'odbijeni', label: 'Odbijeni' },
+  { name: 'novi', label: 'Novi', status: 'SUBMITTED' },
+  { name: 'u-obradi', label: 'U obradi', status: 'IN_PROGRESS' },
+  { name: 'ceka-dopunu', label: 'Čeka dopunu', status: 'NEEDS_INFO' },
+  { name: 'odobreni', label: 'Odobreni', status: 'APPROVED' },
+  { name: 'naruceni', label: 'Naručeni', status: 'ORDERED' },
+  { name: 'odbijeni', label: 'Odbijeni', status: 'REJECTED' },
   { name: 'svi', label: 'Svi' },
 ]
 
+const statusColors = {
+  SUBMITTED: 'blue-8',
+  IN_PROGRESS: 'blue-8',
+  NEEDS_INFO: 'orange-9',
+  APPROVED: 'teal-8',
+  ORDERED: 'teal-8',
+  RECEIVED: 'teal-8',
+  CLOSED: 'grey-8',
+  REJECTED: 'red-8',
+}
+
 const columns = [
-  { name: 'number', label: 'Zahtjev', field: 'number', align: 'left' },
-  { name: 'requester', label: 'Podnositelj / služba', field: 'requester', align: 'left' },
-  { name: 'subject', label: 'Predmet', field: 'subject', align: 'left' },
+  { name: 'number', label: 'Zahtjev', field: 'request_number', align: 'left' },
+  { name: 'requester', label: 'Podnositelj / služba', field: 'created_by_name', align: 'left' },
+  { name: 'subject', label: 'Predmet', field: 'justification', align: 'left' },
   {
     name: 'amount',
     label: 'Iznos',
-    field: 'amount',
+    field: 'total_amount',
     align: 'right',
-    format: (value) => currencyFormat.format(value),
+    format: (value) => currencyFormat.format(value ?? 0),
   },
-  { name: 'waiting', label: 'Čeka', field: 'waiting', align: 'left' },
-  { name: 'coverage', label: 'Pokriće', field: 'coverage', align: 'left' },
-  { name: 'action', label: '', field: 'number', align: 'right' },
+  { name: 'waiting', label: 'Čeka', field: 'updated_at', align: 'left', format: waitingLabel },
+  { name: 'status', label: 'Status', field: 'status_name', align: 'left' },
+  { name: 'action', label: '', field: 'id_purchase_request', align: 'right' },
 ]
 
-// Boja govori sto s pokricem nije u redu; dashed okvir nosi zaseban razred.
-const coverageColors = {
-  ok: 'grey-8',
-  info: 'grey-8',
-  warn: 'orange-9',
-  missing: 'orange-9',
+const requests = ref([])
+const loading = ref(true)
+const error = ref(null)
+
+async function load() {
+  loading.value = true
+  error.value = null
+
+  try {
+    const rows = await gimmiApi.getPurchaseRequests()
+    requests.value = rows.filter((row) => row.status_code !== 'DRAFT')
+  } catch (err) {
+    error.value = err.response?.data?.error ?? `Dohvat zahtjeva nije uspio: ${err.message}`
+  } finally {
+    loading.value = false
+  }
 }
 
-// Izmisljeni redovi dok ekran ne dobije podatke sa servera.
-const rows = [
-  {
-    tab: 'novi',
-    number: 'ZN-2026-0188',
-    source: 'ponuda',
-    requester: 'Ana Kovač',
-    unit: 'Projekt HORIZON-4412',
-    subject: 'Mjerna sonda s kalibracijom',
-    amount: 3870,
-    waiting: '3 dana',
-    coverage: { state: 'info', label: 'predložena kat. ima 12.400 €' },
-  },
-  {
-    tab: 'novi',
-    number: 'ZN-2026-0187',
-    source: 'katalog',
-    requester: 'Petar Babić',
-    unit: 'Služba za nastavu',
-    subject: 'Uredski materijal, 11 stavki',
-    amount: 412.8,
-    waiting: '2 dana',
-    coverage: { state: 'ok', label: 'pokriveno' },
-  },
-  {
-    tab: 'novi',
-    number: 'ZN-2026-0186',
-    source: 'ponuda',
-    requester: 'Luka Marić',
-    unit: 'Služba za IT',
-    subject: 'Poslužitelj, nadogradnja RAM-a',
-    amount: 2140,
-    waiting: '2 dana',
-    coverage: { state: 'missing', label: 'nema predložene kategorije' },
-  },
-  {
-    tab: 'novi',
-    number: 'ZN-2026-0185',
-    source: 'ponuda',
-    requester: 'Ivana Šarić',
-    unit: 'Projekt IPA-2025-09',
-    subject: 'Prijevod i lektura, 40 str.',
-    amount: 960,
-    waiting: '1 dan',
-    coverage: { state: 'warn', label: 'projekt istječe 31.10.' },
-  },
-  {
-    tab: 'novi',
-    number: 'ZN-2026-0184',
-    source: 'ponuda',
-    requester: 'Ivan Horvat',
-    unit: 'Služba za IT',
-    subject: 'Prijenosno računalo 14"',
-    amount: 1449,
-    waiting: '1 dan',
-    coverage: { state: 'ok', label: 'pokriveno' },
-  },
-  {
-    tab: 'novi',
-    number: 'ZN-2026-0183',
-    source: 'katalog',
-    requester: 'Marija Novak',
-    unit: 'Služba za računovodstvo',
-    subject: 'Toneri, 4 stavke',
-    amount: 318.5,
-    waiting: '1 dan',
-    coverage: { state: 'ok', label: 'pokriveno' },
-  },
-  {
-    tab: 'novi',
-    number: 'ZN-2026-0182',
-    source: 'ponuda',
-    requester: 'Tomislav Jurić',
-    unit: 'Služba za tehničke poslove',
-    subject: 'Servis klima uređaja',
-    amount: 1180,
-    waiting: 'danas',
-    coverage: { state: 'ok', label: 'pokriveno' },
-  },
-  {
-    tab: 'u-obradi',
-    number: 'ZN-2026-0179',
-    source: 'ponuda',
-    requester: 'Nikolina Perić',
-    unit: 'Služba za nastavu',
-    subject: 'Projektor za predavaonicu',
-    amount: 2380,
-    waiting: '4 dana',
-    coverage: { state: 'ok', label: 'pokriveno' },
-  },
-  {
-    tab: 'u-obradi',
-    number: 'ZN-2026-0176',
-    source: 'katalog',
-    requester: 'Ivan Horvat',
-    unit: 'Služba za IT',
-    subject: 'Mrežni preklopnik, 24 porta',
-    amount: 890,
-    waiting: '6 dana',
-    coverage: { state: 'warn', label: 'kategorija na 92 %' },
-  },
-  {
-    tab: 'ceka-dopunu',
-    number: 'ZN-2026-0171',
-    source: 'ponuda',
-    requester: 'Ana Kovač',
-    unit: 'Projekt HORIZON-4412',
-    subject: 'Laboratorijski potrošni materijal',
-    amount: 640.2,
-    waiting: '9 dana',
-    coverage: { state: 'missing', label: 'nema predložene kategorije' },
-  },
-  {
-    tab: 'ceka-dopunu',
-    number: 'ZN-2026-0168',
-    source: 'ponuda',
-    requester: 'Petar Babić',
-    unit: 'Služba za nastavu',
-    subject: 'Uvez skripata',
-    amount: 275,
-    waiting: '12 dana',
-    coverage: { state: 'ok', label: 'pokriveno' },
-  },
-]
+onMounted(load)
+
+function daysSince(value) {
+  const start = new Date(value)
+  start.setHours(0, 0, 0, 0)
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  return Math.round((today - start) / 86400000)
+}
+
+// koliko zahtjev stoji u trenutnom statusu
+function waitingLabel(value) {
+  return daysLabel(daysSince(value))
+}
+
+function daysLabel(days) {
+  if (days <= 0) return 'danas'
+  if (days === 1) return '1 dan'
+
+  return `${days} dana`
+}
+
+const departmentOptions = computed(() => [
+  allDepartments,
+  ...[...new Set(requests.value.map((row) => row.department_name))].sort((a, b) =>
+    a.localeCompare(b, 'hr'),
+  ),
+])
+
+function inPeriod(row) {
+  const created = new Date(row.created_at)
+  const now = new Date()
+
+  switch (period.value) {
+    case 'Ovaj mjesec':
+      return created.getFullYear() === now.getFullYear() && created.getMonth() === now.getMonth()
+    case 'Prošli mjesec': {
+      const last = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+      return created.getFullYear() === last.getFullYear() && created.getMonth() === last.getMonth()
+    }
+    case 'Ova godina':
+      return created.getFullYear() === now.getFullYear()
+    default:
+      return true
+  }
+}
+
+// trazilica i filteri vrijede za sve tabove, pa i brojke na njima
+const filteredRows = computed(() => {
+  const term = search.value.trim().toLowerCase()
+
+  return requests.value.filter(
+    (row) =>
+      (!department.value ||
+        department.value === allDepartments ||
+        row.department_name === department.value) &&
+      inPeriod(row) &&
+      (term === '' ||
+        [row.request_number, row.created_by_name, row.department_name, row.justification]
+          .filter(Boolean)
+          .some((text) => text.toLowerCase().includes(term))),
+  )
+})
+
+function rowsForTab(name) {
+  const status = tabs.find((item) => item.name === name)?.status
+
+  return status
+    ? filteredRows.value.filter((row) => row.status_code === status)
+    : filteredRows.value
+}
+
+function countFor(name) {
+  return name === 'svi' ? 0 : rowsForTab(name).length
+}
+
+const summaryCards = computed(() => {
+  const waitingNew = requests.value.filter((row) => row.status_code === 'SUBMITTED')
+  const needsInfo = requests.value.filter((row) => row.status_code === 'NEEDS_INFO')
+  const inProgress = requests.value.filter((row) => row.status_code === 'IN_PROGRESS')
+
+  const now = new Date()
+  // odobreni ovaj mjesec: zadnja promjena statusa je u ovom mjesecu
+  const approved = requests.value.filter((row) => {
+    const changed = new Date(row.updated_at)
+
+    return (
+      row.status_code === 'APPROVED' &&
+      changed.getFullYear() === now.getFullYear() &&
+      changed.getMonth() === now.getMonth()
+    )
+  })
+
+  const oldestDays = Math.max(0, ...waitingNew.map((row) => daysSince(row.created_at)))
+  const longNeedsInfo = needsInfo.filter((row) => daysSince(row.updated_at) > 7).length
+
+  return [
+    {
+      label: 'Novi, nedodijeljeni',
+      value: waitingNew.length,
+      caption: waitingNew.length ? `najstariji čeka ${daysLabel(oldestDays)}` : 'nema novih',
+    },
+    {
+      label: 'Čeka dopunu',
+      value: needsInfo.length,
+      caption: longNeedsInfo ? `${longNeedsInfo} duže od tjedna` : 'nijedan duže od tjedna',
+    },
+    {
+      label: 'Odobreno ovaj mjesec',
+      value: currencyFormat.format(
+        approved.reduce((sum, row) => sum + Number(row.total_amount ?? 0), 0),
+      ),
+      caption: `${approved.length} ${approved.length === 1 ? 'zahtjev' : 'zahtjeva'}`,
+    },
+    {
+      label: 'U obradi',
+      value: inProgress.length,
+      caption: 'preuzeti, čekaju odluku',
+    },
+  ]
+})
 
 const tab = ref('novi')
 const selected = ref([])
-const pagination = ref({ page: 1, rowsPerPage: 5 })
+const pagination = ref({ page: 1, rowsPerPage: 10 })
 
-const visibleRows = computed(() =>
-  tab.value === 'svi' ? rows : rows.filter((row) => row.tab === tab.value),
-)
+const visibleRows = computed(() => rowsForTab(tab.value))
 
 const pageCount = computed(
   () => Math.ceil(visibleRows.value.length / pagination.value.rowsPerPage) || 1,
@@ -377,8 +411,21 @@ const rangeLabel = computed(() => {
   return `${first}–${last} od ${total}`
 })
 
-// promjena skupine krece od prve stranice i bez zaostalih kvacica
-watch(tab, () => {
+function openRequest(row) {
+  router.push(`/zahtjevi/${row.id_purchase_request}`)
+}
+
+// klik na kvacicu oznacava red, ne otvara zahtjev
+function onRowClick(evt, row) {
+  if (evt.target.closest('.q-checkbox')) {
+    return
+  }
+
+  openRequest(row)
+}
+
+// promjena skupine ili filtera krece od prve stranice i bez zaostalih kvacica
+watch([tab, search, department, period], () => {
   pagination.value.page = 1
   selected.value = []
 })
@@ -387,7 +434,7 @@ watch(tab, () => {
 <style scoped>
 /* ista visina kao zaglavlje ladice, pa sadrzaj krece u ravnini s njezinom crtom */
 .page-header {
-  height: var(--gimmi-drawer-header);
+  min-height: 64px;
 }
 
 .search-field {
@@ -412,9 +459,13 @@ watch(tab, () => {
   line-height: 1.2;
 }
 
-/* zahtjev bez kategorije je praznina, ne podatak - zato isprekidani okvir */
-.coverage-chip--missing {
-  border-style: dashed;
+/* cijeli red otvara zahtjev */
+.requests-table :deep(tbody tr) {
+  cursor: pointer;
+}
+
+.subject-cell {
+  max-width: 320px;
 }
 
 /* brojke se poravnavaju po znamenkama */

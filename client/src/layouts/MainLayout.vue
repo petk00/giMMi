@@ -1,15 +1,46 @@
 <template>
   <q-layout view="lHh Lpr lFf">
-    <!-- traka postoji samo na uskim ekranima, gdje se ladica sklapa -->
-    <q-header v-if="$q.screen.lt.lg" elevated class="bg-white text-primary">
-      <q-toolbar>
-        <q-btn flat dense no-caps aria-label="Otvori izbornik" @click="toggleLeftDrawer">
+    <q-header class="app-header">
+      <q-toolbar class="app-toolbar">
+        <q-btn
+          v-if="$q.screen.lt.lg"
+          flat
+          dense
+          no-caps
+          aria-label="Otvori izbornik"
+          @click="toggleLeftDrawer"
+        >
           <img alt="giMMi" src="~assets/gimmi-logo.jpg" class="brand-logo-small" />
         </q-btn>
 
-        <q-toolbar-title class="text-subtitle1 q-ml-sm">
+        <div v-else class="desktop-brand">
+          <img alt="giMMi" src="~assets/gimmi-logo.jpg" class="brand-logo" />
+        </div>
+
+        <q-toolbar-title class="app-page-title">
           {{ $route.meta.title }}
         </q-toolbar-title>
+
+        <div class="row items-center no-wrap q-gutter-sm">
+          <q-avatar size="34px" color="grey-2" text-color="grey-9" class="text-caption">
+            {{ initials }}
+          </q-avatar>
+
+          <div v-if="$q.screen.gt.sm" class="column">
+            <span class="text-body2 text-weight-medium">{{ auth.fullName }}</span>
+            <span class="text-caption text-grey-7">{{ auth.user?.role_name }}</span>
+          </div>
+
+          <q-btn
+            flat
+            dense
+            round
+            icon="logout"
+            aria-label="Odjava"
+            :loading="loggingOut"
+            @click="logout"
+          />
+        </div>
       </q-toolbar>
     </q-header>
 
@@ -20,12 +51,6 @@
       :width="sideWidth"
       class="column no-wrap"
     >
-      <div class="drawer-header row items-center q-px-md">
-        <img alt="giMMi" src="~assets/gimmi-logo.jpg" class="brand-logo" />
-      </div>
-
-      <q-separator />
-
       <q-list class="col scroll q-pt-sm">
         <template v-for="section in visibleSections" :key="section.label">
           <q-item-label header class="section-label">{{ section.label }}</q-item-label>
@@ -75,32 +100,6 @@
         </q-item>
       </q-list>
 
-      <q-separator />
-
-      <q-item class="q-py-md">
-        <q-item-section avatar class="menu-icon">
-          <q-avatar size="34px" color="grey-3" text-color="grey-9" class="text-caption">
-            {{ initials }}
-          </q-avatar>
-        </q-item-section>
-
-        <q-item-section>
-          <q-item-label class="text-weight-medium">{{ auth.fullName }}</q-item-label>
-          <q-item-label caption>{{ auth.user?.role_name }}</q-item-label>
-        </q-item-section>
-
-        <q-item-section side>
-          <q-btn
-            flat
-            dense
-            round
-            icon="logout"
-            aria-label="Odjava"
-            :loading="loggingOut"
-            @click="logout"
-          />
-        </q-item-section>
-      </q-item>
     </q-drawer>
 
     <q-page-container>
@@ -220,12 +219,6 @@ async function logout() {
 </script>
 
 <style scoped>
-/* Visina zaglavlja odredjuje gdje pada crta ispod logotipa; sadrzaj stranice
-   poravnava se na istu vrijednost (--gimmi-drawer-header u app.scss). */
-.drawer-header {
-  height: var(--gimmi-drawer-header);
-}
-
 .brand-logo {
   height: 36px;
   width: auto;
@@ -238,12 +231,18 @@ async function logout() {
   display: block;
 }
 
+.desktop-brand {
+  width: var(--gimmi-side-width);
+  flex: 0 0 var(--gimmi-side-width);
+  padding-left: 16px;
+}
+
 .section-label {
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(0, 0, 0, 0.5);
+  color: #89939e;
   padding-bottom: 4px;
 }
 
@@ -254,7 +253,7 @@ async function logout() {
 }
 
 .menu-item--active {
-  background: rgba(25, 118, 210, 0.1);
+  background: rgba(22, 137, 154, 0.1);
   color: var(--q-primary);
   font-weight: 600;
 }
@@ -262,4 +261,11 @@ async function logout() {
 .menu-icon {
   min-width: 34px;
 }
+
+.app-page-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
 </style>
