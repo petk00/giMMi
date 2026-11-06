@@ -13,8 +13,7 @@ export const config = {
   // lokalni model koji cita ponude (Ollama)
   ollama: {
     url: process.env.OLLAMA_URL || 'http://127.0.0.1:11434',
-    model: process.env.OLLAMA_MODEL || 'gemma4:e2b',
-    timeoutMs: Number(process.env.OLLAMA_TIMEOUT_MS) || 120000,
+    model: process.env.OLLAMA_MODEL || 'qwen3.5:9b',
     // sirina na koju se PDF renderira prije slanja modelu
     renderWidth: Number(process.env.OFFER_RENDER_WIDTH) || 1700,
   },

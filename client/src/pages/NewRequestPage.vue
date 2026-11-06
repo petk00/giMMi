@@ -1,10 +1,8 @@
 <template>
   <q-page class="bg-grey-2 with-page-header">
-    <!-- Zaglavlje stoji u traci logotipa; desno se vidi sto jos nedostaje. -->
+    <!-- Provjera koraka ostaje uz radnju odustajanja. -->
     <div class="page-header row items-center no-wrap q-px-lg">
       <q-btn flat dense no-caps color="grey-7" icon="arrow_back" label="Odustani" @click="cancel" />
-
-      <div class="text-h6 q-ml-md col">Novi zahtjev</div>
 
       <div class="row items-center no-wrap q-gutter-lg">
         <div v-for="check in checklist" :key="check.label" class="row items-center no-wrap">
@@ -158,6 +156,15 @@
                   class="recognised-chip"
                   label="prepoznato iz ponude"
                 />
+
+                <span v-if="offer.model" class="text-caption text-grey-7">
+                  {{ modelName(offer.model) }} · {{ readingTime(offer.tookMs) }}
+                  <template
+                    v-if="offer.inputTokens !== null && offer.outputTokens !== null"
+                  >
+                    · ulaz {{ offer.inputTokens }} · izlaz {{ offer.outputTokens }} tokena
+                  </template>
+                </span>
 
                 <q-space />
 
@@ -653,10 +660,13 @@ async function readOffer(offer) {
     }
 
     offer.recognised = true
+    offer.model = result.model ?? ''
     offer.net = result.netTotal ?? 0
     offer.vat = result.vatAmount ?? 0
     offer.total = result.totalWithVat ?? 0
     offer.tookMs = result.tookMs ?? 0
+    offer.inputTokens = result.inputTokens ?? null
+    offer.outputTokens = result.outputTokens ?? null
 
     offer.items = result.items.map((item) => ({
       name: item.name,
@@ -689,6 +699,7 @@ function addOffer(file) {
     url: URL.createObjectURL(file),
     supplier: { name: '', oib: '', offerNumber: '', issuedAt: '', validUntil: '' },
     recognised: false,
+    model: '',
     items: [],
     net: 0,
     vat: 0,
@@ -696,6 +707,8 @@ function addOffer(file) {
     reading: false,
     error: null,
     tookMs: 0,
+    inputTokens: null,
+    outputTokens: null,
   })
 
   offers.value.push(offer)
@@ -795,6 +808,35 @@ function removeItem(offer, index) {
 
 function lineTotal(item) {
   return (item.quantity ?? 0) * (item.unitPrice ?? 0)
+}
+
+function modelName(model) {
+  if (model === 'qwen3.5:9b') {
+    return 'Qwen3.5 9B'
+  }
+
+  if (model === 'gimmi-qwen3-vl:8b-instruct') {
+    return 'Qwen3-VL 8B'
+  }
+
+  if (model === 'gemma4:e2b') {
+    return 'Gemma 4 E2B'
+  }
+
+  return model
+}
+
+function readingTime(milliseconds) {
+  const seconds = Math.round(milliseconds / 1000)
+
+  if (seconds < 60) {
+    return `${seconds} s`
+  }
+
+  const minutes = Math.floor(seconds / 60)
+  const remainingSeconds = seconds % 60
+
+  return remainingSeconds ? `${minutes} min ${remainingSeconds} s` : `${minutes} min`
 }
 
 /**
@@ -1026,11 +1068,6 @@ function cancel() {
     position: sticky;
     top: 24px;
   }
-}
-
-/* ista visina kao zaglavlje ladice, pa blokovi krecu u ravnini s njezinom crtom */
-.page-header {
-  height: var(--gimmi-drawer-header);
 }
 
 /* provjera u zaglavlju odlazi prva kad ekran postane tijesan */
