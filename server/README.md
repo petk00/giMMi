@@ -155,6 +155,7 @@ Razvojni korisnici iz `db/seed-dev.sql`, lozinka svima `123456`:
 | POST | `/api/purchase-requests` | novi nacrt sa stavkama; `amounts` prepisuje iznose |
 | GET | `/api/purchase-requests/:id` | zahtjev + stavke, timeline, prilozi, dopusteni koraci |
 | POST | `/api/purchase-requests/:id/attachments` | multipart: `file` + `documentType` |
+| GET | `/api/purchase-requests/:id/attachments/:attachmentId` | otvara prilog u pregledniku |
 | POST | `/api/purchase-requests/:id/transitions` | `{ toStatus, comment }`, promjena statusa |
 | POST | `/api/offers/read` | multipart: `file`; lokalni model cita ponudu i vraca stavke |
 

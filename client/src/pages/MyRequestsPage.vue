@@ -105,59 +105,27 @@
     </template>
 
     <!-- proba toka: dokument se nigdje ne salje ni ne sprema -->
-    <q-dialog v-model="offerDialog" persistent>
-      <q-card style="min-width: 380px">
-        <q-card-section class="text-subtitle1">Podnesi iz ponude</q-card-section>
-
-        <q-card-section v-if="uploading" class="column items-center q-gutter-md q-py-lg">
-          <q-spinner color="primary" size="48px" />
-          <div class="text-body2 text-grey-7">Obrađujem ponudu...</div>
-        </q-card-section>
-
-        <template v-else>
-          <q-card-section class="q-pt-none">
-            <q-file
-              v-model="offerFile"
-              outlined
-              dense
-              label="Odaberite dokument"
-              accept=".pdf,.doc,.docx,image/*"
-            >
-              <template #prepend>
-                <q-icon name="attach_file" />
-              </template>
-            </q-file>
-
-            <div class="text-caption text-grey-7 q-mt-sm">
-              Dokument ostaje samo u pregledniku, nigdje se ne sprema.
-            </div>
-          </q-card-section>
-
-          <q-card-actions align="right">
-            <q-btn v-close-popup flat label="Odustani" />
-            <q-btn
-              unelevated
-              color="primary"
-              label="Učitaj"
-              :disable="offerFile === null"
-              @click="startUpload"
-            />
-          </q-card-actions>
-        </template>
-      </q-card>
-    </q-dialog>
+    <!-- skriveni odabir datoteke; ponudu dalje cita stranica novog zahtjeva -->
+    <input
+      ref="offerInput"
+      type="file"
+      accept="application/pdf"
+      multiple
+      class="hidden"
+      @change="onOfferPicked"
+    />
   </q-page>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
-import { useQuasar } from 'quasar'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import { gimmiApi } from 'src/services/gimmi-api'
+import { handOverOffers } from 'src/services/offer-handoff'
 
-const $q = useQuasar()
 const route = useRoute()
+const router = useRouter()
 
 const currencyFormat = new Intl.NumberFormat('hr-HR', { style: 'currency', currency: 'EUR' })
 const dateFormat = new Intl.DateTimeFormat('hr-HR')
@@ -168,7 +136,7 @@ const entryCards = [
     caption: 'Priložite PDF ili sliku ponude i mi prepišemo stavke',
     icon: 'description',
     action: 'Podnesi iz ponude',
-    onClick: () => openOfferDialog(),
+    onClick: () => pickOffer(),
   },
   {
     title: 'Ne znam gdje kupiti',
@@ -270,33 +238,21 @@ async function load() {
 
 onMounted(load)
 
-const offerDialog = ref(false)
-const offerFile = ref(null)
-const uploading = ref(false)
+const offerInput = ref(null)
 
-let uploadTimer = null
-
-function openOfferDialog() {
-  offerFile.value = null
-  uploading.value = false
-  offerDialog.value = true
+function pickOffer() {
+  offerInput.value.value = ''
+  offerInput.value.click()
 }
 
-// Lazna obrada od 30 sekundi, dok se ne napravi prava obrada ponude.
-function startUpload() {
-  uploading.value = true
+function onOfferPicked(event) {
+  const files = [...(event.target.files ?? [])]
 
-  uploadTimer = setTimeout(() => {
-    uploading.value = false
-    offerDialog.value = false
+  if (files.length === 0) {
+    return
+  }
 
-    $q.notify({
-      type: 'positive',
-      message: 'Ponuda je obrađena.',
-      caption: offerFile.value?.name,
-    })
-  }, 30000)
+  handOverOffers(files)
+  router.push('/zahtjevi/novi')
 }
-
-onBeforeUnmount(() => clearTimeout(uploadTimer))
 </script>
