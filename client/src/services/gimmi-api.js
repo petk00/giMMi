@@ -44,6 +44,10 @@ export const gimmiApi = {
   changePurchaseRequestStatus: (id, toStatus, comment) =>
     api.post(`/purchase-requests/${id}/transitions`, { toStatus, comment }).then((res) => res.data),
 
+  // link, ne poziv: prilog otvara preglednik, a kolacic s prijavom ide sam
+  attachmentUrl: (id, attachmentId) =>
+    `${api.defaults.baseURL}/purchase-requests/${id}/attachments/${attachmentId}`,
+
   // prilog ide kao multipart; documentType je kod iz sifrarnika DocumentType
   addAttachment: (id, file, documentType) => {
     const form = new FormData()

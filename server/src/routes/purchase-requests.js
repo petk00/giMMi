@@ -1,6 +1,7 @@
 import { Router } from 'express'
 
 import { unlink } from 'node:fs/promises'
+import { basename } from 'node:path'
 
 import { query, queryOne, withTransaction } from '../db.js'
 import { attachmentPath, uploadAttachment } from '../uploads.js'
@@ -376,6 +377,43 @@ purchaseRequestsRouter.post('/:id/transitions', async (req, res) => {
 
     throw err
   }
+})
+
+// Preuzimanje priloga. Otvara se u pregledniku (inline), pod imenom koje je
+// datoteka imala kad je prilozena; na disku je spremljena pod UUID-om.
+purchaseRequestsRouter.get('/:id/attachments/:attachmentId', async (req, res) => {
+  const attachment = await queryOne(
+    `select file_name, file_path, mime_type
+       from PurchaseRequestAttachment
+      where id_purchase_request_attachment = ? and fk_purchase_request = ?`,
+    [req.params.attachmentId, req.params.id],
+  )
+
+  if (attachment === null) {
+    return res.status(404).json({ error: 'Prilog ne postoji' })
+  }
+
+  // filename* nosi i hrvatske znakove; obican filename je zamjena za stare preglednike
+  const asciiName = attachment.file_name.replace(/[^\x20-\x7e]|"/g, '_')
+  const disposition =
+    `inline; filename="${asciiName}"; ` +
+    `filename*=UTF-8''${encodeURIComponent(attachment.file_name)}`
+
+  // ime na disku daje server, ali basename svejedno sprjecava izlazak iz mape
+  res.sendFile(
+    attachmentPath(basename(attachment.file_path)),
+    {
+      headers: {
+        'Content-Type': attachment.mime_type ?? 'application/octet-stream',
+        'Content-Disposition': disposition,
+      },
+    },
+    (err) => {
+      if (err && !res.headersSent) {
+        res.status(404).json({ error: 'Datoteka priloga nije pronađena na disku' })
+      }
+    },
+  )
 })
 
 // Prilaganje dokumenta uz zahtjev. Verzija raste po tipu dokumenta, a prethodna

@@ -105,7 +105,20 @@
             </q-card-section>
 
             <q-list v-if="currentAttachments.length > 0" separator>
-              <q-item v-for="file in currentAttachments" :key="file.id_purchase_request_attachment">
+              <q-item
+                v-for="file in currentAttachments"
+                :key="file.id_purchase_request_attachment"
+                clickable
+                tag="a"
+                target="_blank"
+                rel="noopener"
+                :href="
+                  gimmiApi.attachmentUrl(
+                    request.id_purchase_request,
+                    file.id_purchase_request_attachment,
+                  )
+                "
+              >
                 <q-item-section avatar>
                   <q-icon
                     :name="file.is_generated ? 'auto_awesome' : 'description'"

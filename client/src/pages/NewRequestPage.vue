@@ -562,6 +562,7 @@ import { useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
 
 import { gimmiApi } from 'src/services/gimmi-api'
+import { takeHandedOffers } from 'src/services/offer-handoff'
 import { useAuthStore } from 'src/stores/auth'
 
 const $q = useQuasar()
@@ -929,6 +930,9 @@ const missing = computed(() => {
 })
 
 onMounted(async () => {
+  // ponuda odabrana na "Mojim zahtjevima" odmah se pocinje citati
+  addOffers(takeHandedOffers())
+
   loadingCostCentres.value = true
 
   try {
