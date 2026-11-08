@@ -109,6 +109,19 @@
           </q-td>
         </template>
 
+        <template #body-cell-coverage="props">
+          <q-td :props="props">
+            <q-chip
+              v-if="props.row.coverage"
+              dense
+              outline
+              :color="coverageColors[props.row.coverage.state]"
+              :class="{ 'coverage-chip--missing': props.row.coverage.state === 'missing' }"
+              :label="props.row.coverage.label"
+            />
+          </q-td>
+        </template>
+
         <template #body-cell-status="props">
           <q-td :props="props">
             <q-chip
@@ -157,6 +170,7 @@
               color="grey-8"
               label="Dodijeli kategoriju označenima"
               :disable="selected.length === 0"
+              @click="openAssign"
             />
 
             <q-space />
@@ -188,15 +202,63 @@
         </template>
       </q-table>
     </div>
+
+    <q-dialog v-model="assignDialog">
+      <q-card style="width: 440px; max-width: 90vw">
+        <q-card-section class="text-h6">Dodijeli kategoriju</q-card-section>
+
+        <q-card-section class="q-pt-none q-gutter-md">
+          <div class="text-body2 text-grey-8">
+            Kategorija ide stavkama bez kategorije u {{ selected.length }}
+            {{ selected.length === 1 ? 'označenom zahtjevu' : 'označenih zahtjeva' }}. Stavke koje
+            već imaju kategoriju ostaju kakve jesu.
+          </div>
+
+          <q-select
+            v-model="assignCategory"
+            outlined
+            emit-value
+            map-options
+            label="Kategorija"
+            :options="categoryOptions"
+            :loading="loadingCategories"
+          >
+            <template #option="scope">
+              <q-item v-bind="scope.itemProps">
+                <q-item-section>
+                  <q-item-label>{{ scope.opt.label }}</q-item-label>
+                  <q-item-label caption>{{ scope.opt.caption }}</q-item-label>
+                </q-item-section>
+              </q-item>
+            </template>
+          </q-select>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn v-close-popup flat no-caps color="grey-8" label="Odustani" />
+          <q-btn
+            unelevated
+            no-caps
+            color="primary"
+            label="Dodijeli"
+            :loading="assigning"
+            :disable="assignCategory === null"
+            @click="confirmAssign"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useQuasar } from 'quasar'
 
 import { gimmiApi } from 'src/services/gimmi-api'
 
+const $q = useQuasar()
 const router = useRouter()
 
 const currencyFormat = new Intl.NumberFormat('hr-HR', { style: 'currency', currency: 'EUR' })
@@ -242,16 +304,28 @@ const columns = [
     format: (value) => currencyFormat.format(value ?? 0),
   },
   { name: 'waiting', label: 'Čeka', field: 'updated_at', align: 'left', format: waitingLabel },
+  { name: 'coverage', label: 'Pokriće', field: 'coverage', align: 'left' },
   { name: 'status', label: 'Status', field: 'status_name', align: 'left' },
   { name: 'action', label: '', field: 'id_purchase_request', align: 'right' },
 ]
+
+// Boja govori sto s pokricem nije u redu; isprekidani okvir nosi zaseban razred.
+const coverageColors = {
+  ok: 'grey-8',
+  warn: 'orange-9',
+  missing: 'orange-9',
+}
+
+// o ovim zahtjevima jos nije odluceno, pa pokrice jos moze utjecati na odluku
+const openStatuses = ['SUBMITTED', 'IN_PROGRESS', 'NEEDS_INFO']
 
 const requests = ref([])
 const loading = ref(true)
 const error = ref(null)
 
-async function load() {
-  loading.value = true
+// tiho ucitavanje (nakon skupne radnje) ne prazni tablicu
+async function load({ quiet = false } = {}) {
+  loading.value = !quiet
   error.value = null
 
   try {
@@ -264,7 +338,7 @@ async function load() {
   }
 }
 
-onMounted(load)
+onMounted(() => load())
 
 function daysSince(value) {
   const start = new Date(value)
@@ -345,7 +419,11 @@ function countFor(name) {
 const summaryCards = computed(() => {
   const waitingNew = requests.value.filter((row) => row.status_code === 'SUBMITTED')
   const needsInfo = requests.value.filter((row) => row.status_code === 'NEEDS_INFO')
-  const inProgress = requests.value.filter((row) => row.status_code === 'IN_PROGRESS')
+  const uncovered = requests.value.filter(
+    (row) => openStatuses.includes(row.status_code) && row.coverage && row.coverage.state !== 'ok',
+  )
+  const missingCategory = uncovered.filter((row) => row.coverage.state === 'missing').length
+  const overBudget = uncovered.length - missingCategory
 
   const now = new Date()
   // odobreni ovaj mjesec: zadnja promjena statusa je u ovom mjesecu
@@ -381,9 +459,11 @@ const summaryCards = computed(() => {
       caption: `${approved.length} ${approved.length === 1 ? 'zahtjev' : 'zahtjeva'}`,
     },
     {
-      label: 'U obradi',
-      value: inProgress.length,
-      caption: 'preuzeti, čekaju odluku',
+      label: 'Bez pokrića',
+      value: uncovered.length,
+      caption: uncovered.length
+        ? `${missingCategory} bez kategorije, ${overBudget} preko limita`
+        : 'svi otvoreni su pokriveni',
     },
   ]
 })
@@ -410,6 +490,66 @@ const rangeLabel = computed(() => {
 
   return `${first}–${last} od ${total}`
 })
+
+const assignDialog = ref(false)
+const assignCategory = ref(null)
+const assigning = ref(false)
+const categories = ref([])
+const loadingCategories = ref(false)
+
+const categoryOptions = computed(() =>
+  categories.value
+    .filter((cat) => cat.is_active === 1)
+    .map((cat) => ({
+      value: cat.id_item_category_budget,
+      label: `${cat.name} (${cat.year})`,
+      caption: `slobodno ${currencyFormat.format(cat.budget_limit - cat.committed_amount)}`,
+    })),
+)
+
+async function openAssign() {
+  assignCategory.value = null
+  assignDialog.value = true
+  loadingCategories.value = true
+
+  try {
+    categories.value = await gimmiApi.getItemCategoryBudgets()
+  } catch (err) {
+    $q.notify({ type: 'negative', message: err.response?.data?.error ?? err.message })
+  } finally {
+    loadingCategories.value = false
+  }
+}
+
+async function confirmAssign() {
+  assigning.value = true
+
+  try {
+    const result = await gimmiApi.assignCategory(
+      selected.value.map((row) => row.id_purchase_request),
+      assignCategory.value,
+    )
+
+    $q.notify({
+      type: result.updatedItems > 0 ? 'positive' : 'info',
+      message:
+        result.updatedItems > 0
+          ? `Kategorija je dodana na ${result.updatedItems} ${result.updatedItems === 1 ? 'stavku' : 'stavki'}.`
+          : 'Nijedna označena stavka nije bila bez kategorije.',
+      caption: result.skipped.length
+        ? `Preskočeno, o njima je već odlučeno: ${result.skipped.join(', ')}`
+        : undefined,
+    })
+
+    assignDialog.value = false
+    selected.value = []
+    await load({ quiet: true })
+  } catch (err) {
+    $q.notify({ type: 'negative', message: err.response?.data?.error ?? err.message })
+  } finally {
+    assigning.value = false
+  }
+}
 
 function openRequest(row) {
   router.push(`/zahtjevi/${row.id_purchase_request}`)
@@ -462,6 +602,11 @@ watch([tab, search, department, period], () => {
 /* cijeli red otvara zahtjev */
 .requests-table :deep(tbody tr) {
   cursor: pointer;
+}
+
+/* zahtjev bez kategorije je praznina, ne podatak - zato isprekidani okvir */
+.coverage-chip--missing {
+  border-style: dashed;
 }
 
 .subject-cell {

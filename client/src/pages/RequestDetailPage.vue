@@ -76,6 +76,40 @@
               <div class="text-subtitle1 text-weight-bold">Stavke</div>
             </template>
 
+            <!-- nabava bira kategoriju dok o zahtjevu jos nije odluceno -->
+            <template #body-cell-category="props">
+              <q-td :props="props" class="category-cell">
+                <q-select
+                  v-if="canEditCategories"
+                  :model-value="props.row.fk_item_category_budget"
+                  dense
+                  outlined
+                  emit-value
+                  map-options
+                  clearable
+                  options-dense
+                  placeholder="Odaberite"
+                  :options="categoryOptions"
+                  :loading="savingItem === props.row.id_purchase_request_item"
+                  :class="{ 'category-missing': props.row.fk_item_category_budget === null }"
+                  @update:model-value="(value) => setCategory(props.row, value)"
+                >
+                  <template #option="scope">
+                    <q-item v-bind="scope.itemProps">
+                      <q-item-section>
+                        <q-item-label>{{ scope.opt.label }}</q-item-label>
+                        <q-item-label caption>{{ scope.opt.caption }}</q-item-label>
+                      </q-item-section>
+                    </q-item>
+                  </template>
+                </q-select>
+
+                <span v-else :class="{ 'text-grey-6': !props.row.item_category_name }">
+                  {{ props.row.item_category_name ?? 'bez kategorije' }}
+                </span>
+              </q-td>
+            </template>
+
             <template #bottom-row>
               <q-tr v-for="total in totals" :key="total.label" class="total-row">
                 <q-td colspan="4" class="text-right text-grey-7">{{ total.label }}</q-td>
@@ -86,6 +120,45 @@
               </q-tr>
             </template>
           </q-table>
+
+          <!-- koliko kategorijama ostaje kad se ovaj zahtjev odobri -->
+          <q-card v-if="budgetRows.length > 0" flat bordered class="q-mt-md">
+            <q-card-section class="text-subtitle1 text-weight-bold q-pb-none">
+              Proračun po kategorijama
+            </q-card-section>
+
+            <q-card-section class="q-gutter-md">
+              <div v-for="row in budgetRows" :key="row.id">
+                <div class="row items-baseline no-wrap q-mb-xs">
+                  <div class="col text-body2 text-weight-medium ellipsis">{{ row.name }}</div>
+                  <div
+                    class="text-body2 num"
+                    :class="row.after < 0 ? 'text-negative' : 'text-grey-8'"
+                  >
+                    {{
+                      row.after < 0
+                        ? `nedostaje ${currencyFormat.format(-row.after)}`
+                        : `ostaje ${currencyFormat.format(row.after)}`
+                    }}
+                  </div>
+                </div>
+
+                <q-linear-progress
+                  rounded
+                  size="8px"
+                  :value="Math.min(row.share, 1)"
+                  :color="row.share > 1 ? 'negative' : row.share > 0.9 ? 'orange-8' : 'primary'"
+                  track-color="grey-3"
+                />
+
+                <div class="text-caption text-grey-7 q-mt-xs num">
+                  limit {{ currencyFormat.format(row.limit) }} · već odobreno
+                  {{ currencyFormat.format(row.others) }} · ovaj zahtjev
+                  {{ currencyFormat.format(row.amount) }} s PDV-om
+                </div>
+              </div>
+            </q-card-section>
+          </q-card>
         </div>
 
         <div class="col-12 col-md-4 side-column">
@@ -371,8 +444,9 @@ const request = ref(null)
 const loading = ref(true)
 const error = ref(null)
 
+// ponovno ucitavanje nakon izmjene ne skriva stranicu iza spinnera
 async function load() {
-  loading.value = true
+  loading.value = request.value?.id_purchase_request !== Number(route.params.id)
   error.value = null
 
   try {
@@ -402,6 +476,80 @@ const totals = computed(() => [
   { label: 'PDV', value: request.value.vat_amount },
   { label: 'Ukupno', value: request.value.total_amount, strong: true },
 ])
+
+// isti popis kao COMMITTED_STATUSES na serveru (budget.js)
+const committedStatuses = ['APPROVED', 'ORDERED', 'RECEIVED', 'CLOSED']
+
+const canEditCategories = computed(
+  () =>
+    request.value?.category_editable === true && (auth.isAdmin || auth.roleCode === 'PROCUREMENT'),
+)
+
+const categoryOptions = computed(() =>
+  (request.value?.categories ?? [])
+    .filter((cat) => cat.is_active === 1)
+    .map((cat) => ({
+      value: cat.id_item_category_budget,
+      label: cat.name,
+      caption: `slobodno ${currencyFormat.format(cat.budget_limit - cat.committed_amount)}`,
+    })),
+)
+
+// Zbroj zahtjeva po kategoriji naspram onoga sto je vec odobreno. Odobreni
+// zahtjev je vec u odobrenom iznosu, pa se njegov dio oduzima.
+const budgetRows = computed(() => {
+  if (!request.value) {
+    return []
+  }
+
+  const amounts = new Map()
+
+  for (const item of request.value.items) {
+    if (item.fk_item_category_budget !== null) {
+      amounts.set(
+        item.fk_item_category_budget,
+        (amounts.get(item.fk_item_category_budget) ?? 0) + Number(item.line_gross),
+      )
+    }
+  }
+
+  const isCommitted = committedStatuses.includes(request.value.status_code)
+
+  return [...amounts].map(([id, amount]) => {
+    const cat = request.value.categories.find((other) => other.id_item_category_budget === id)
+    const limit = Number(cat?.budget_limit ?? 0)
+    const others = Number(cat?.committed_amount ?? 0) - (isCommitted ? amount : 0)
+
+    return {
+      id,
+      name: cat?.name ?? `kategorija ${id}`,
+      limit,
+      others,
+      amount,
+      after: limit - others - amount,
+      share: limit > 0 ? (others + amount) / limit : Infinity,
+    }
+  })
+})
+
+const savingItem = ref(null)
+
+async function setCategory(item, category) {
+  savingItem.value = item.id_purchase_request_item
+
+  try {
+    await gimmiApi.setItemCategory(
+      request.value.id_purchase_request,
+      item.id_purchase_request_item,
+      category ?? null,
+    )
+    await load()
+  } catch (err) {
+    $q.notify({ type: 'negative', message: err.response?.data?.error ?? err.message })
+  } finally {
+    savingItem.value = null
+  }
+}
 
 const currentAttachments = computed(() =>
   request.value.attachments.filter((file) => file.is_current === 1),
@@ -543,6 +691,16 @@ async function uploadAttachment() {
 
 .num {
   font-variant-numeric: tabular-nums;
+}
+
+.category-cell {
+  min-width: 200px;
+}
+
+/* stavka bez kategorije je praznina koju treba popuniti */
+.category-missing :deep(.q-field__control:before) {
+  border-style: dashed;
+  border-color: var(--q-orange-8, #ef6c00);
 }
 
 .total-row td {

@@ -147,15 +147,17 @@ Razvojni korisnici iz `db/seed-dev.sql`, lozinka svima `123456`:
 | GET | `/api/fiscal-years` | fiskalne godine s budzetom |
 | GET | `/api/departments?kind=` | troskovna mjesta: sluzbe i projekti |
 | GET | `/api/department-budgets?fiscalYear=` | proracuni sluzbi po godini |
-| GET | `/api/item-category-budgets?fiscalYear=` | kategorije stavki s limitima po godini |
+| GET | `/api/item-category-budgets?fiscalYear=` | kategorije stavki s limitima po godini i obecanim iznosom (`committed_amount`) |
 | GET | `/api/purchase-request-statuses` | statusi zahtjeva |
 | GET | `/api/document-types` | tipovi dokumenata |
 | GET | `/api/users` | korisnici s rolom (bez `password_hash`) |
-| GET | `/api/purchase-requests?fiscalYear=&status=&departmentBudget=&mine=1` | lista zahtjeva; `mine=1` samo svoje |
+| GET | `/api/purchase-requests?fiscalYear=&status=&departmentBudget=&mine=1` | lista zahtjeva s pokricem (`coverage`); `mine=1` samo svoje, podnositelj uvijek samo svoje |
 | POST | `/api/purchase-requests` | novi nacrt sa stavkama; `amounts` prepisuje iznose |
-| GET | `/api/purchase-requests/:id` | zahtjev + stavke, timeline, prilozi, dopusteni koraci |
+| GET | `/api/purchase-requests/:id` | zahtjev + stavke, timeline, prilozi, dopusteni koraci, kategorije godine |
 | POST | `/api/purchase-requests/:id/attachments` | multipart: `file` + `documentType` |
 | GET | `/api/purchase-requests/:id/attachments/:attachmentId` | otvara prilog u pregledniku |
+| PATCH | `/api/purchase-requests/:id/items/:itemId` | `{ category }` - kategorija stavke (nabava) |
+| POST | `/api/purchase-requests/assign-category` | `{ requests: [id], category }` - kategorija stavkama bez nje (nabava) |
 | POST | `/api/purchase-requests/:id/transitions` | `{ toStatus, comment }`, promjena statusa |
 | POST | `/api/offers/read` | multipart: `file`; lokalni model cita ponudu i vraca stavke |
 
