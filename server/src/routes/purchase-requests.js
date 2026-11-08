@@ -3,6 +3,8 @@ import { Router } from 'express'
 import { unlink } from 'node:fs/promises'
 import { basename } from 'node:path'
 
+import { requireRole } from '../auth.js'
+import { coverageFor, itemGrossSql, listCategoryBudgets } from '../budget.js'
 import { query, queryOne, withTransaction } from '../db.js'
 import { attachmentPath, uploadAttachment } from '../uploads.js'
 import { assertTransitionAllowed, nextRequestNumber, WorkflowError } from '../workflow.js'
@@ -39,6 +41,19 @@ function requestAmounts(items, amounts) {
   return { net, vat, total: net + vat }
 }
 
+// Podnositelj vidi samo svoje zahtjeve; nabava i administrator vide sve.
+// Tudji zahtjev se ponasa kao da ne postoji, da se ne otkriva sto postoji.
+function seesAll(user) {
+  return user.role_code === 'ADMIN' || user.role_code === 'PROCUREMENT'
+}
+
+function canSee(user, request) {
+  return seesAll(user) || request.fk_created_by_user === user.id_user
+}
+
+// Kategoriju stavke nabava odredjuje dok o zahtjevu jos nije odluceno.
+const CATEGORY_EDITABLE_STATUSES = ['SUBMITTED', 'IN_PROGRESS', 'NEEDS_INFO']
+
 const listSql = `
   select pr.id_purchase_request, pr.request_number, pr.source,
          pr.net_amount, pr.vat_amount, pr.total_amount,
@@ -61,8 +76,9 @@ const listSql = `
 purchaseRequestsRouter.get('/', async (req, res) => {
   const { fiscalYear, status, departmentBudget, mine } = req.query
 
-  // ?mine=1 vraca samo zahtjeve prijavljenog korisnika
-  const onlyMine = mine === '1' || mine === 'true'
+  // ?mine=1 vraca samo zahtjeve prijavljenog korisnika; podnositelj ionako
+  // dobiva samo svoje
+  const onlyMine = mine === '1' || mine === 'true' || !seesAll(req.user)
 
   const rows = await query(
     `${listSql}
@@ -83,7 +99,9 @@ purchaseRequestsRouter.get('/', async (req, res) => {
     ],
   )
 
-  res.json(rows)
+  const coverage = await coverageFor(rows)
+
+  res.json(rows.map((row) => ({ ...row, coverage: coverage.get(row.id_purchase_request) })))
 })
 
 // Zahtjev nastaje kao nacrt. Troskovno mjesto bira podnositelj - isti covjek
@@ -233,15 +251,16 @@ purchaseRequestsRouter.post('/', async (req, res) => {
 purchaseRequestsRouter.get('/:id', async (req, res) => {
   const request = await queryOne(`${listSql} where pr.id_purchase_request = ?`, [req.params.id])
 
-  if (request === null) {
+  if (request === null || !canSee(req.user, request)) {
     return res.status(404).json({ error: `Zahtjev ${req.params.id} ne postoji` })
   }
 
-  const [items, timeline, attachments, transitions] = await Promise.all([
+  const [items, timeline, attachments, transitions, categories] = await Promise.all([
     query(
       `select pri.id_purchase_request_item, pri.item_name, pri.quantity, pri.unit_price,
               pri.vat_rate,
               pri.quantity * pri.unit_price as line_total,
+              ${itemGrossSql} as line_gross,
               pri.fk_item_category_budget, cat.name as item_category_name
          from PurchaseRequestItem pri
          left join ItemCategoryBudget cat on cat.id_item_category_budget = pri.fk_item_category_budget
@@ -307,9 +326,19 @@ purchaseRequestsRouter.get('/:id', async (req, res) => {
         order by ts.sort_order`,
       [req.params.id],
     ),
+    // kategorije iste fiskalne godine, za izbor kategorije stavke
+    listCategoryBudgets({ fiscalYearId: request.fk_fiscal_year }),
   ])
 
-  res.json({ ...request, items, timeline, attachments, transitions })
+  res.json({
+    ...request,
+    items,
+    timeline,
+    attachments,
+    transitions,
+    categories,
+    category_editable: CATEGORY_EDITABLE_STATUSES.includes(request.status_code),
+  })
 })
 
 // Promjena statusa. Sto je dopusteno, tko smije i sto mora biti prilozeno -
@@ -334,7 +363,7 @@ purchaseRequestsRouter.post('/:id/transitions', async (req, res) => {
         [req.params.id],
       )
 
-      if (request === null) {
+      if (request === null || !canSee(req.user, request)) {
         throw new WorkflowError(`Zahtjev ${req.params.id} ne postoji`, 404)
       }
 
@@ -379,17 +408,168 @@ purchaseRequestsRouter.post('/:id/transitions', async (req, res) => {
   }
 })
 
+// Kategorija mora biti aktivna i iz iste fiskalne godine kao zahtjev, inace
+// bi trosak zavrsio u tudjem proracunu.
+async function findUsableCategory(db, categoryId, fiscalYearId) {
+  const category = await db.queryOne(
+    `select id_item_category_budget, name, is_active, fk_fiscal_year
+       from ItemCategoryBudget
+      where id_item_category_budget = ?`,
+    [categoryId],
+  )
+
+  if (category === null) {
+    throw new WorkflowError(`Kategorija ${categoryId} ne postoji`, 400)
+  }
+
+  if (category.is_active !== 1) {
+    throw new WorkflowError(`Kategorija "${category.name}" nije aktivna`)
+  }
+
+  if (category.fk_fiscal_year !== fiscalYearId) {
+    throw new WorkflowError(`Kategorija "${category.name}" pripada drugoj fiskalnoj godini`)
+  }
+
+  return category
+}
+
+// Kategorija jedne stavke; null je brise.
+purchaseRequestsRouter.patch(
+  '/:id/items/:itemId',
+  requireRole('PROCUREMENT'),
+  async (req, res) => {
+    const categoryId = req.body?.category ?? null
+
+    try {
+      await withTransaction(async (db) => {
+        const item = await db.queryOne(
+          `select pri.id_purchase_request_item, pr.fk_fiscal_year, st.code as status_code,
+                  st.name as status_name
+             from PurchaseRequestItem pri
+             join PurchaseRequest pr on pr.id_purchase_request = pri.fk_purchase_request
+             join PurchaseRequestStatus st
+               on st.id_purchase_request_status = pr.fk_purchase_request_status
+            where pri.id_purchase_request_item = ? and pri.fk_purchase_request = ?
+            for update`,
+          [req.params.itemId, req.params.id],
+        )
+
+        if (item === null) {
+          throw new WorkflowError('Stavka ne postoji', 404)
+        }
+
+        if (!CATEGORY_EDITABLE_STATUSES.includes(item.status_code)) {
+          throw new WorkflowError(
+            `U statusu "${item.status_name}" kategorija se vise ne mijenja`,
+          )
+        }
+
+        if (categoryId !== null) {
+          await findUsableCategory(db, categoryId, item.fk_fiscal_year)
+        }
+
+        await db.query(
+          `update PurchaseRequestItem
+              set fk_item_category_budget = ?
+            where id_purchase_request_item = ?`,
+          [categoryId, req.params.itemId],
+        )
+
+        await db.query(
+          `update PurchaseRequest set updated_at = current_timestamp
+            where id_purchase_request = ?`,
+          [req.params.id],
+        )
+      })
+
+      res.json({ ok: true })
+    } catch (err) {
+      if (err instanceof WorkflowError) {
+        return res.status(err.status).json({ error: err.message })
+      }
+
+      throw err
+    }
+  },
+)
+
+// Skupna dodjela s popisa u nabavi: kategorija ide samo stavkama koje je jos
+// nemaju, da se ne pregaze odluke donesene stavku po stavku. Zahtjevi o
+// kojima je vec odluceno preskacu se.
+purchaseRequestsRouter.post('/assign-category', requireRole('PROCUREMENT'), async (req, res) => {
+  const { requests: requestIds, category: categoryId } = req.body ?? {}
+
+  if (!Array.isArray(requestIds) || requestIds.length === 0 || !categoryId) {
+    return res.status(400).json({ error: 'Nedostaju zahtjevi ili kategorija' })
+  }
+
+  try {
+    const result = await withTransaction(async (db) => {
+      let updatedItems = 0
+      const skipped = []
+
+      for (const requestId of requestIds) {
+        const request = await db.queryOne(
+          `select pr.id_purchase_request, pr.request_number, pr.fk_fiscal_year,
+                  st.code as status_code
+             from PurchaseRequest pr
+             join PurchaseRequestStatus st
+               on st.id_purchase_request_status = pr.fk_purchase_request_status
+            where pr.id_purchase_request = ?
+            for update`,
+          [requestId],
+        )
+
+        if (request === null || !CATEGORY_EDITABLE_STATUSES.includes(request.status_code)) {
+          skipped.push(request?.request_number ?? String(requestId))
+          continue
+        }
+
+        await findUsableCategory(db, categoryId, request.fk_fiscal_year)
+
+        const update = await db.query(
+          `update PurchaseRequestItem
+              set fk_item_category_budget = ?
+            where fk_purchase_request = ? and fk_item_category_budget is null`,
+          [categoryId, requestId],
+        )
+
+        if (update.affectedRows > 0) {
+          updatedItems += update.affectedRows
+
+          await db.query(
+            `update PurchaseRequest set updated_at = current_timestamp
+              where id_purchase_request = ?`,
+            [requestId],
+          )
+        }
+      }
+
+      return { updatedItems, skipped }
+    })
+
+    res.json(result)
+  } catch (err) {
+    if (err instanceof WorkflowError) {
+      return res.status(err.status).json({ error: err.message })
+    }
+
+    throw err
+  }
+})
+
 // Preuzimanje priloga. Otvara se u pregledniku (inline), pod imenom koje je
 // datoteka imala kad je prilozena; na disku je spremljena pod UUID-om.
 purchaseRequestsRouter.get('/:id/attachments/:attachmentId', async (req, res) => {
   const attachment = await queryOne(
-    `select file_name, file_path, mime_type
-       from PurchaseRequestAttachment
-      where id_purchase_request_attachment = ? and fk_purchase_request = ?`,
+    `select a.file_name, a.file_path, a.mime_type, pr.fk_created_by_user
+       from PurchaseRequestAttachment a
+       join PurchaseRequest pr on pr.id_purchase_request = a.fk_purchase_request
+      where a.id_purchase_request_attachment = ? and a.fk_purchase_request = ?`,
     [req.params.attachmentId, req.params.id],
   )
 
-  if (attachment === null) {
+  if (attachment === null || !canSee(req.user, attachment)) {
     return res.status(404).json({ error: 'Prilog ne postoji' })
   }
 
@@ -434,11 +614,13 @@ purchaseRequestsRouter.post('/:id/attachments', (req, res) => {
     try {
       const attachmentId = await withTransaction(async (db) => {
         const request = await db.queryOne(
-          `select id_purchase_request from PurchaseRequest where id_purchase_request = ?`,
+          `select id_purchase_request, fk_created_by_user
+             from PurchaseRequest
+            where id_purchase_request = ?`,
           [req.params.id],
         )
 
-        if (request === null) {
+        if (request === null || !canSee(req.user, request)) {
           throw new WorkflowError(`Zahtjev ${req.params.id} ne postoji`, 404)
         }
 

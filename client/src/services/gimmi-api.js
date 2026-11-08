@@ -44,6 +44,15 @@ export const gimmiApi = {
   changePurchaseRequestStatus: (id, toStatus, comment) =>
     api.post(`/purchase-requests/${id}/transitions`, { toStatus, comment }).then((res) => res.data),
 
+  // category je id kategorije ili null
+  setItemCategory: (id, itemId, category) =>
+    api.patch(`/purchase-requests/${id}/items/${itemId}`, { category }).then((res) => res.data),
+
+  assignCategory: (requestIds, category) =>
+    api
+      .post('/purchase-requests/assign-category', { requests: requestIds, category })
+      .then((res) => res.data),
+
   // link, ne poziv: prilog otvara preglednik, a kolacic s prijavom ide sam
   attachmentUrl: (id, attachmentId) =>
     `${api.defaults.baseURL}/purchase-requests/${id}/attachments/${attachmentId}`,
