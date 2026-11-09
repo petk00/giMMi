@@ -161,6 +161,8 @@
               color="grey-8"
               label="Odobri označene"
               :disable="selected.length === 0"
+              :loading="approving"
+              @click="approveSelected"
             />
 
             <q-btn
@@ -490,6 +492,77 @@ const rangeLabel = computed(() => {
 
   return `${first}–${last} od ${total}`
 })
+
+// Skupno se odobravaju samo zahtjevi koje je operater preuzeo i koji su
+// pokriveni; ostali se preskacu uz razlog. Svaki ide kroz isti korak kao s
+// pojedinacne stranice, pa server provjerava ista pravila.
+const approving = ref(false)
+
+function skipReason(row) {
+  if (row.status_code !== 'IN_PROGRESS') {
+    return `${row.status_name.toLowerCase()}, nije u obradi`
+  }
+
+  if (row.coverage?.state !== 'ok') {
+    return row.coverage?.label ?? 'nema pokrića'
+  }
+
+  return null
+}
+
+function approveSelected() {
+  const ready = selected.value.filter((row) => skipReason(row) === null)
+  const skipped = selected.value.filter((row) => skipReason(row) !== null)
+
+  const skippedText = skipped.map((row) => `${row.request_number} (${skipReason(row)})`).join(', ')
+
+  if (ready.length === 0) {
+    $q.notify({
+      type: 'warning',
+      message: 'Nijedan označeni zahtjev nije spreman za odobrenje.',
+      caption: skippedText,
+    })
+    return
+  }
+
+  const total = ready.reduce((sum, row) => sum + Number(row.total_amount ?? 0), 0)
+
+  $q.dialog({
+    title: 'Odobri označene',
+    message:
+      `Odobriti ${ready.length} ${ready.length === 1 ? 'zahtjev' : 'zahtjeva'} ` +
+      `u ukupnom iznosu ${currencyFormat.format(total)}?` +
+      (skipped.length ? ` Preskače se: ${skippedText}.` : ''),
+    cancel: { flat: true, noCaps: true, color: 'grey-8', label: 'Odustani' },
+    ok: { unelevated: true, noCaps: true, color: 'primary', label: 'Odobri' },
+  }).onOk(() => approve(ready))
+}
+
+async function approve(rows) {
+  approving.value = true
+  const failed = []
+
+  for (const row of rows) {
+    try {
+      await gimmiApi.changePurchaseRequestStatus(row.id_purchase_request, 'APPROVED', null)
+    } catch (err) {
+      failed.push(`${row.request_number}: ${err.response?.data?.error ?? err.message}`)
+    }
+  }
+
+  const approved = rows.length - failed.length
+
+  $q.notify({
+    type: failed.length === 0 ? 'positive' : approved > 0 ? 'warning' : 'negative',
+    message: `Odobreno ${approved} od ${rows.length}.`,
+    caption: failed.length ? `Nije uspjelo: ${failed.join('; ')}` : undefined,
+    timeout: failed.length ? 10000 : 5000,
+  })
+
+  selected.value = []
+  approving.value = false
+  await load({ quiet: true })
+}
 
 const assignDialog = ref(false)
 const assignCategory = ref(null)

@@ -152,7 +152,8 @@ Razvojni korisnici iz `db/seed-dev.sql`, lozinka svima `123456`:
 | GET | `/api/document-types` | tipovi dokumenata |
 | GET | `/api/users` | korisnici s rolom (bez `password_hash`) |
 | GET | `/api/purchase-requests?fiscalYear=&status=&departmentBudget=&mine=1` | lista zahtjeva s pokricem (`coverage`); `mine=1` samo svoje, podnositelj uvijek samo svoje |
-| POST | `/api/purchase-requests` | novi nacrt sa stavkama; `amounts` prepisuje iznose |
+| POST | `/api/purchase-requests` | novi nacrt sa stavkama i napomenom (`comment`); `amounts` prepisuje iznose |
+| PUT | `/api/purchase-requests/:id` | izmjena nacrta ili zahtjeva na dopuni (samo podnositelj); stavke s `id_purchase_request_item` zadrzavaju kategoriju |
 | GET | `/api/purchase-requests/:id` | zahtjev + stavke, timeline, prilozi, dopusteni koraci, kategorije godine |
 | POST | `/api/purchase-requests/:id/attachments` | multipart: `file` + `documentType` |
 | GET | `/api/purchase-requests/:id/attachments/:attachmentId` | otvara prilog u pregledniku |

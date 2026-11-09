@@ -104,6 +104,76 @@ purchaseRequestsRouter.get('/', async (req, res) => {
   res.json(rows.map((row) => ({ ...row, coverage: coverage.get(row.id_purchase_request) })))
 })
 
+// Podnositelj mijenja zahtjev dok je nacrt ili kad ga nabava vrati na dopunu.
+const EDITABLE_STATUSES = ['DRAFT', 'NEEDS_INFO']
+
+function canEdit(user, request) {
+  return (
+    EDITABLE_STATUSES.includes(request.status_code) &&
+    (user.role_code === 'ADMIN' || request.fk_created_by_user === user.id_user)
+  )
+}
+
+/** Provjera sadrzaja zahtjeva; vraca poruku greske ili null. */
+function invalidContent({ justification, comment, items }) {
+  if (justification !== null && justification.length > JUSTIFICATION_MAX_LENGTH) {
+    return `Svrha nabave smije imati najvise ${JUSTIFICATION_MAX_LENGTH} znakova`
+  }
+
+  if (comment !== null && comment.length > JUSTIFICATION_MAX_LENGTH) {
+    return `Napomena smije imati najvise ${JUSTIFICATION_MAX_LENGTH} znakova`
+  }
+
+  for (const item of items) {
+    if (!item.item_name?.trim()) {
+      return 'Svaka stavka mora imati naziv'
+    }
+
+    if (!Number.isInteger(item.quantity) || item.quantity < 1) {
+      return `Kolicina za "${item.item_name}" mora biti cijeli broj veci od nule`
+    }
+  }
+
+  return null
+}
+
+/** Troskovno mjesto na koje se smije trositi: postoji, aktivno je, godina je otvorena. */
+async function findUsableBudget(db, departmentBudgetId) {
+  const budget = await db.queryOne(
+    `select b.id_department_budget, b.fk_fiscal_year, fy.year, fy.is_closed,
+            d.name as department_name, d.is_active, d.valid_from, d.valid_to
+       from DepartmentBudget b
+       join FiscalYear fy on fy.id_fiscal_year = b.fk_fiscal_year
+       join Department d on d.id_department = b.fk_department
+      where b.id_department_budget = ?`,
+    [departmentBudgetId],
+  )
+
+  if (budget === null) {
+    throw new WorkflowError('Odabrano troskovno mjesto ne postoji', 404)
+  }
+
+  if (budget.is_closed === 1) {
+    throw new WorkflowError(`Fiskalna godina ${budget.year} je zatvorena`)
+  }
+
+  if (budget.is_active !== 1) {
+    throw new WorkflowError(`Troskovno mjesto "${budget.department_name}" nije aktivno`)
+  }
+
+  // projekt vrijedi samo unutar svojih datuma
+  const today = new Date().toISOString().slice(0, 10)
+
+  if (
+    (budget.valid_from !== null && today < budget.valid_from) ||
+    (budget.valid_to !== null && today > budget.valid_to)
+  ) {
+    throw new WorkflowError(`Projekt "${budget.department_name}" trenutno nije u tijeku`)
+  }
+
+  return budget
+}
+
 // Zahtjev nastaje kao nacrt. Troskovno mjesto bira podnositelj - isti covjek
 // moze trositi na vise sluzbi ili projekata - a fiskalna godina se cita iz
 // odabranog proracuna, pa ne moze zavrsiti u pogresnoj godini.
@@ -112,6 +182,7 @@ purchaseRequestsRouter.post('/', async (req, res) => {
     source = 'CATALOG',
     departmentBudget = null,
     justification = null,
+    comment = null,
     items = [],
     amounts = null,
   } = req.body ?? {}
@@ -124,55 +195,15 @@ purchaseRequestsRouter.post('/', async (req, res) => {
     return res.status(400).json({ error: 'Odaberite troskovno mjesto' })
   }
 
-  if (justification !== null && justification.length > JUSTIFICATION_MAX_LENGTH) {
-    return res
-      .status(400)
-      .json({ error: `Svrha nabave smije imati najvise ${JUSTIFICATION_MAX_LENGTH} znakova` })
-  }
+  const invalid = invalidContent({ justification, comment, items })
 
-  for (const item of items) {
-    if (!item.item_name?.trim()) {
-      return res.status(400).json({ error: 'Svaka stavka mora imati naziv' })
-    }
-
-    if (!Number.isInteger(item.quantity) || item.quantity < 1) {
-      return res.status(400).json({ error: `Kolicina za "${item.item_name}" mora biti cijeli broj veci od nule` })
-    }
+  if (invalid) {
+    return res.status(400).json({ error: invalid })
   }
 
   try {
     const created = await withTransaction(async (db) => {
-      const budget = await db.queryOne(
-        `select b.id_department_budget, b.fk_fiscal_year, fy.year, fy.is_closed,
-                d.name as department_name, d.is_active, d.valid_from, d.valid_to
-           from DepartmentBudget b
-           join FiscalYear fy on fy.id_fiscal_year = b.fk_fiscal_year
-           join Department d on d.id_department = b.fk_department
-          where b.id_department_budget = ?`,
-        [departmentBudget],
-      )
-
-      if (budget === null) {
-        throw new WorkflowError('Odabrano troskovno mjesto ne postoji', 404)
-      }
-
-      if (budget.is_closed === 1) {
-        throw new WorkflowError(`Fiskalna godina ${budget.year} je zatvorena`)
-      }
-
-      if (budget.is_active !== 1) {
-        throw new WorkflowError(`Troskovno mjesto "${budget.department_name}" nije aktivno`)
-      }
-
-      // projekt vrijedi samo unutar svojih datuma
-      const today = new Date().toISOString().slice(0, 10)
-
-      if (
-        (budget.valid_from !== null && today < budget.valid_from) ||
-        (budget.valid_to !== null && today > budget.valid_to)
-      ) {
-        throw new WorkflowError(`Projekt "${budget.department_name}" trenutno nije u tijeku`)
-      }
+      const budget = await findUsableBudget(db, departmentBudget)
 
       const requestNumber = await nextRequestNumber(db, {
         fiscalYearId: budget.fk_fiscal_year,
@@ -188,9 +219,9 @@ purchaseRequestsRouter.post('/', async (req, res) => {
       const result = await db.query(
         `insert into PurchaseRequest
            (request_number, source, fk_fiscal_year, fk_department_budget,
-            fk_purchase_request_status, fk_created_by_user, justification,
+            fk_purchase_request_status, fk_created_by_user, justification, comment,
             net_amount, vat_amount, total_amount)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           requestNumber,
           source,
@@ -199,6 +230,7 @@ purchaseRequestsRouter.post('/', async (req, res) => {
           draft.id_purchase_request_status,
           req.user.id_user,
           justification,
+          comment?.trim() || null,
           net.toFixed(2),
           vat.toFixed(2),
           total.toFixed(2),
@@ -239,6 +271,133 @@ purchaseRequestsRouter.post('/', async (req, res) => {
     const request = await queryOne(`${listSql} where pr.id_purchase_request = ?`, [created])
 
     res.status(201).json(request)
+  } catch (err) {
+    if (err instanceof WorkflowError) {
+      return res.status(err.status).json({ error: err.message })
+    }
+
+    throw err
+  }
+})
+
+// Izmjena nacrta ili zahtjeva vracenog na dopunu. Stavke koje dodju s id-em se
+// azuriraju i zadrzavaju kategoriju koju im je nabava mozda vec dala; nove se
+// dodaju, a one kojih vise nema brisu se. Izvor i broj zahtjeva se ne mijenjaju.
+purchaseRequestsRouter.put('/:id', async (req, res) => {
+  const {
+    departmentBudget = null,
+    justification = null,
+    comment = null,
+    items = [],
+    amounts = null,
+  } = req.body ?? {}
+
+  if (!departmentBudget) {
+    return res.status(400).json({ error: 'Odaberite troskovno mjesto' })
+  }
+
+  const invalid = invalidContent({ justification, comment, items })
+
+  if (invalid) {
+    return res.status(400).json({ error: invalid })
+  }
+
+  try {
+    await withTransaction(async (db) => {
+      const request = await db.queryOne(
+        `select pr.id_purchase_request, pr.fk_fiscal_year, pr.fk_created_by_user,
+                st.code as status_code, st.name as status_name
+           from PurchaseRequest pr
+           join PurchaseRequestStatus st
+             on st.id_purchase_request_status = pr.fk_purchase_request_status
+          where pr.id_purchase_request = ?
+          for update`,
+        [req.params.id],
+      )
+
+      if (request === null || !canSee(req.user, request)) {
+        throw new WorkflowError(`Zahtjev ${req.params.id} ne postoji`, 404)
+      }
+
+      if (!canEdit(req.user, request)) {
+        if (!EDITABLE_STATUSES.includes(request.status_code)) {
+          throw new WorkflowError(`U statusu "${request.status_name}" zahtjev se vise ne mijenja`)
+        }
+
+        throw new WorkflowError('Zahtjev moze mijenjati samo podnositelj', 403)
+      }
+
+      const budget = await findUsableBudget(db, departmentBudget)
+
+      // broj zahtjeva nosi godinu, pa zahtjev ne moze preseliti u drugu
+      if (budget.fk_fiscal_year !== request.fk_fiscal_year) {
+        throw new WorkflowError('Sluzba ili projekt mora biti iz iste fiskalne godine kao zahtjev')
+      }
+
+      const existing = await db.query(
+        `select id_purchase_request_item from PurchaseRequestItem where fk_purchase_request = ?`,
+        [req.params.id],
+      )
+      const existingIds = new Set(existing.map((row) => row.id_purchase_request_item))
+      const keptIds = new Set()
+
+      for (const item of items) {
+        const id = Number(item.id_purchase_request_item)
+
+        if (existingIds.has(id)) {
+          keptIds.add(id)
+
+          await db.query(
+            `update PurchaseRequestItem
+                set item_name = ?, quantity = ?, unit_price = ?, vat_rate = ?
+              where id_purchase_request_item = ?`,
+            [item.item_name.trim(), item.quantity, item.unit_price ?? 0, item.vat_rate ?? 25, id],
+          )
+        } else {
+          await db.query(
+            `insert into PurchaseRequestItem
+               (fk_purchase_request, item_name, quantity, unit_price, vat_rate)
+             values (?, ?, ?, ?, ?)`,
+            [
+              req.params.id,
+              item.item_name.trim(),
+              item.quantity,
+              item.unit_price ?? 0,
+              item.vat_rate ?? 25,
+            ],
+          )
+        }
+      }
+
+      for (const id of existingIds) {
+        if (!keptIds.has(id)) {
+          await db.query(`delete from PurchaseRequestItem where id_purchase_request_item = ?`, [id])
+        }
+      }
+
+      const { net, vat, total } = requestAmounts(items, amounts)
+
+      await db.query(
+        `update PurchaseRequest
+            set fk_department_budget = ?, justification = ?, comment = ?,
+                net_amount = ?, vat_amount = ?, total_amount = ?,
+                updated_at = current_timestamp
+          where id_purchase_request = ?`,
+        [
+          budget.id_department_budget,
+          justification,
+          comment?.trim() || null,
+          net.toFixed(2),
+          vat.toFixed(2),
+          total.toFixed(2),
+          req.params.id,
+        ],
+      )
+    })
+
+    const request = await queryOne(`${listSql} where pr.id_purchase_request = ?`, [req.params.id])
+
+    res.json(request)
   } catch (err) {
     if (err instanceof WorkflowError) {
       return res.status(err.status).json({ error: err.message })
@@ -338,6 +497,7 @@ purchaseRequestsRouter.get('/:id', async (req, res) => {
     transitions,
     categories,
     category_editable: CATEGORY_EDITABLE_STATUSES.includes(request.status_code),
+    can_edit: canEdit(req.user, request),
   })
 })
 
