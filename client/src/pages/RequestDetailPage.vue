@@ -15,6 +15,16 @@
 
         <q-space />
 
+        <q-btn
+          v-if="request.can_edit"
+          outline
+          no-caps
+          color="primary"
+          icon="edit"
+          :label="request.status_code === 'NEEDS_INFO' ? 'Dopuni' : 'Uredi'"
+          :to="`/zahtjevi/${request.id_purchase_request}/uredi`"
+        />
+
         <!-- samo koraci koje prijavljeni korisnik smije napraviti -->
         <q-btn
           v-for="step in allowedTransitions"

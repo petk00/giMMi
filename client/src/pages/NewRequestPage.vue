@@ -32,13 +32,20 @@
                 <div class="text-subtitle1 text-weight-bold">Zahtjev</div>
 
                 <q-chip dense square color="grey-3" text-color="grey-8" class="meta-chip">
-                  nacrt
+                  {{ existing ? existing.status_name.toLowerCase() : 'nacrt' }}
                 </q-chip>
 
                 <q-space />
 
                 <div class="text-body2 text-grey-7 ellipsis">
-                  {{ auth.fullName }} · {{ today }} · broj se dodjeljuje pri spremanju
+                  <template v-if="existing">
+                    {{ existing.created_by_name }} ·
+                    {{ dateFormat.format(new Date(existing.created_at)) }} ·
+                    {{ existing.request_number }}
+                  </template>
+                  <template v-else>
+                    {{ auth.fullName }} · {{ today }} · broj se dodjeljuje pri spremanju
+                  </template>
                 </div>
               </div>
             </q-card-section>
@@ -159,9 +166,7 @@
 
                 <span v-if="offer.model" class="text-caption text-grey-7">
                   {{ modelName(offer.model) }} · {{ readingTime(offer.tookMs) }}
-                  <template
-                    v-if="offer.inputTokens !== null && offer.outputTokens !== null"
-                  >
+                  <template v-if="offer.inputTokens !== null && offer.outputTokens !== null">
                     · ulaz {{ offer.inputTokens }} · izlaz {{ offer.outputTokens }} tokena
                   </template>
                 </span>
@@ -414,7 +419,7 @@
                   outline
                   no-caps
                   color="grey-8"
-                  label="Spremi kao nacrt"
+                  :label="needsInfo ? 'Spremi izmjene' : 'Spremi kao nacrt'"
                   :loading="saving"
                   @click="saveDraft"
                 />
@@ -423,7 +428,7 @@
                   unelevated
                   no-caps
                   color="primary"
-                  label="Podnesi zahtjev"
+                  :label="needsInfo ? 'Pošalji dopunu' : 'Podnesi zahtjev'"
                   :disable="missing.length > 0"
                   :loading="saving"
                   @click="submit"
@@ -496,11 +501,16 @@
                     <q-item-section>
                       <q-item-label class="ellipsis text-body2">{{ extra.file.name }}</q-item-label>
                       <q-item-label caption>
-                        {{ Math.round(extra.file.size / 1024) }} kB
+                        {{
+                          extra.attachmentId
+                            ? 'već priloženo'
+                            : `${Math.round(extra.file.size / 1024)} kB`
+                        }}
                       </q-item-label>
                     </q-item-section>
 
-                    <q-item-section side>
+                    <!-- spremljeni prilog ostaje zapisan, pa se ovdje ne uklanja -->
+                    <q-item-section v-if="!extra.attachmentId" side>
                       <q-btn
                         flat
                         dense
@@ -558,7 +568,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
 
 import { gimmiApi } from 'src/services/gimmi-api'
@@ -566,7 +576,13 @@ import { takeHandedOffers } from 'src/services/offer-handoff'
 import { useAuthStore } from 'src/stores/auth'
 
 const $q = useQuasar()
+const route = useRoute()
 const router = useRouter()
+
+// Ista stranica uredjuje nacrt ili zahtjev vracen na dopunu (/zahtjevi/:id/uredi).
+const editId = route.params.id ?? null
+const existing = ref(null)
+const needsInfo = computed(() => existing.value?.status_code === 'NEEDS_INFO')
 const auth = useAuthStore()
 
 const currencyFormat = new Intl.NumberFormat('hr-HR', { style: 'currency', currency: 'EUR' })
@@ -730,6 +746,89 @@ function addOffers(files) {
   }
 
   replaceWith(added[0])
+}
+
+/**
+ * Ponuda koja je vec spremljena uz zahtjev vraca se u obrazac sa stavkama iz
+ * baze, bez ponovnog citanja. attachmentId znaci da je ne treba opet slati.
+ */
+function addStoredOffer(file, attachmentId, storedItems) {
+  const offer = reactive({
+    id: ++lastId,
+    attachmentId,
+    file,
+    url: URL.createObjectURL(file),
+    supplier: { name: '', oib: '', offerNumber: '', issuedAt: '', validUntil: '' },
+    recognised: false,
+    model: '',
+    items: storedItems,
+    net: 0,
+    vat: 0,
+    total: 0,
+    reading: false,
+    error: null,
+    tookMs: 0,
+    inputTokens: null,
+    outputTokens: null,
+  })
+
+  offers.value.push(offer)
+}
+
+async function loadExisting() {
+  const request = await gimmiApi.getPurchaseRequest(editId)
+
+  if (!request.can_edit) {
+    $q.notify({ type: 'warning', message: `Zahtjev ${request.request_number} se više ne mijenja.` })
+    await router.replace(`/zahtjevi/${editId}`)
+    return
+  }
+
+  existing.value = request
+  justification.value = request.justification ?? ''
+  note.value = request.comment ?? ''
+
+  // stavka pamti svoj id, pa uz nju ostaje kategorija koju je nabava dala
+  const storedItems = request.items.map((item) => ({
+    id: item.id_purchase_request_item,
+    name: item.item_name,
+    quantity: item.quantity,
+    unitPrice: item.unit_price,
+  }))
+
+  const current = request.attachments.filter((file) => file.is_current === 1)
+  const offerFile = current.find((file) => file.document_type_code === 'OFFER')
+
+  if (offerFile) {
+    const blob = await gimmiApi.getAttachmentBlob(
+      request.id_purchase_request,
+      offerFile.id_purchase_request_attachment,
+    )
+
+    addStoredOffer(
+      new File([blob], offerFile.file_name, { type: offerFile.mime_type ?? blob.type }),
+      offerFile.id_purchase_request_attachment,
+      storedItems,
+    )
+  } else if (storedItems.length > 0) {
+    // zahtjev bez ponude (npr. iz kataloga) - stavke ipak trebaju svoj blok
+    addStoredOffer(
+      new File([], 'Ponuda nije priložena', { type: 'application/pdf' }),
+      0,
+      storedItems,
+    )
+  }
+
+  // generirani zahtjev za nabavom nije prilog koji je podnositelj dodao
+  for (const file of current) {
+    if (file !== offerFile && file.is_generated !== 1) {
+      extras.value.push({
+        id: ++lastId,
+        attachmentId: file.id_purchase_request_attachment,
+        file: { name: file.file_name, size: 0 },
+      })
+    }
+  }
 }
 
 function dropOffer(event) {
@@ -930,18 +1029,30 @@ const missing = computed(() => {
 })
 
 onMounted(async () => {
-  // ponuda odabrana na "Mojim zahtjevima" odmah se pocinje citati
-  addOffers(takeHandedOffers())
+  if (editId === null) {
+    // ponuda odabrana na "Mojim zahtjevima" odmah se pocinje citati
+    addOffers(takeHandedOffers())
+  }
 
   loadingCostCentres.value = true
 
   try {
-    const budgets = await gimmiApi.getDepartmentBudgets()
+    const [budgets] = await Promise.all([
+      gimmiApi.getDepartmentBudgets(),
+      editId === null ? null : loadExisting(),
+    ])
 
     costCentreOptions.value = budgets.map((budget) => ({
       ...budget,
       label: `${budget.department_name}${budget.kind === 'PROJECT' ? ' (projekt)' : ''}`,
     }))
+
+    if (existing.value) {
+      costCentre.value =
+        costCentreOptions.value.find(
+          (option) => option.id_department_budget === existing.value.fk_department_budget,
+        ) ?? null
+    }
   } catch (err) {
     $q.notify({
       type: 'negative',
@@ -958,6 +1069,8 @@ const saving = ref(false)
  * Zahtjev uvijek nastaje kao nacrt; podnosenje je zaseban korak jer server
  * pri njemu provjerava pravila (prilozena ponuda, ovlasti, komentar).
  * Kategorija stavke ostaje prazna - dodjeljuje je nabava pri obradi.
+ * Kod uredjivanja se sprema na isti zahtjev, a podnosenje iz dopune vraca ga
+ * nabavi.
  */
 async function create({ andSubmit }) {
   if (saving.value) {
@@ -967,42 +1080,52 @@ async function create({ andSubmit }) {
   saving.value = true
 
   try {
-    const request = await gimmiApi.createPurchaseRequest({
-      source: 'OFFER',
+    const payload = {
       departmentBudget: costCentre.value.id_department_budget,
       justification: justification.value.trim() || null,
+      comment: note.value.trim() || null,
       amounts: { net: net.value, vat: vat.value, total: totalWithVat.value },
       items: items.value.map((item) => ({
+        id_purchase_request_item: item.id ?? null,
         item_name: item.name,
         quantity: item.quantity,
         unit_price: item.unitPrice,
         vat_rate: vatRate,
       })),
-    })
+    }
+
+    const request = existing.value
+      ? await gimmiApi.updatePurchaseRequest(existing.value.id_purchase_request, payload)
+      : await gimmiApi.createPurchaseRequest({ source: 'OFFER', ...payload })
 
     const id = request.id_purchase_request
 
     // Prva ponuda je uvjet za podnosenje; ostale idu kao usporedni dokumenti.
+    // Vec spremljene se ne salju ponovo; nova prva ponuda postaje nova verzija.
     for (const [index, offer] of offers.value.entries()) {
-      await gimmiApi.addAttachment(id, offer.file, index === 0 ? 'OFFER' : 'OTHER')
+      if (offer.attachmentId === undefined) {
+        await gimmiApi.addAttachment(id, offer.file, index === 0 ? 'OFFER' : 'OTHER')
+      }
     }
 
     for (const extra of extras.value) {
-      await gimmiApi.addAttachment(id, extra.file, 'OTHER')
+      if (extra.attachmentId === undefined) {
+        await gimmiApi.addAttachment(id, extra.file, 'OTHER')
+      }
     }
 
     if (andSubmit) {
-      await gimmiApi.changePurchaseRequestStatus(id, 'SUBMITTED', note.value.trim() || null)
+      await gimmiApi.changePurchaseRequestStatus(id, 'SUBMITTED', null)
     }
 
     $q.notify({
       type: 'positive',
       message: andSubmit
-        ? `Zahtjev ${request.request_number} je podnesen.`
-        : `Nacrt ${request.request_number} je spremljen.`,
+        ? `Zahtjev ${request.request_number} je ${needsInfo.value ? 'dopunjen i poslan' : 'podnesen'}.`
+        : `${needsInfo.value ? 'Izmjene zahtjeva' : 'Nacrt'} ${request.request_number} ${needsInfo.value ? 'su spremljene' : 'je spremljen'}.`,
     })
 
-    await router.push('/zahtjevi')
+    await router.push(existing.value ? `/zahtjevi/${id}` : '/zahtjevi')
   } catch (err) {
     $q.notify({
       type: 'negative',
@@ -1029,17 +1152,21 @@ function submit() {
 
 // Prazan obrazac nema sto izgubiti, pa odustajanje tada ide bez pitanja.
 function cancel() {
+  const back = existing.value ? `/zahtjevi/${existing.value.id_purchase_request}` : '/zahtjevi'
+
   if (!hasInput.value) {
-    router.push('/zahtjevi')
+    router.push(back)
     return
   }
 
   $q.dialog({
-    title: 'Odbaci nacrt',
-    message: 'Uneseni podaci neće biti spremljeni. Nastaviti?',
+    title: existing.value ? 'Odbaci izmjene' : 'Odbaci nacrt',
+    message: existing.value
+      ? 'Izmjene neće biti spremljene; zahtjev ostaje kakav je bio. Nastaviti?'
+      : 'Uneseni podaci neće biti spremljeni. Nastaviti?',
     cancel: { flat: true, noCaps: true, label: 'Odustani' },
     ok: { unelevated: true, noCaps: true, color: 'negative', label: 'Odbaci' },
-  }).onOk(() => router.push('/zahtjevi'))
+  }).onOk(() => router.push(back))
 }
 </script>
 

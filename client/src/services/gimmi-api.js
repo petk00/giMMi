@@ -44,6 +44,15 @@ export const gimmiApi = {
   changePurchaseRequestStatus: (id, toStatus, comment) =>
     api.post(`/purchase-requests/${id}/transitions`, { toStatus, comment }).then((res) => res.data),
 
+  updatePurchaseRequest: (id, payload) =>
+    api.put(`/purchase-requests/${id}`, payload).then((res) => res.data),
+
+  // sadrzaj priloga kao Blob, kad ga treba vratiti u obrazac
+  getAttachmentBlob: (id, attachmentId) =>
+    api
+      .get(`/purchase-requests/${id}/attachments/${attachmentId}`, { responseType: 'blob' })
+      .then((res) => res.data),
+
   // category je id kategorije ili null
   setItemCategory: (id, itemId, category) =>
     api.patch(`/purchase-requests/${id}/items/${itemId}`, { category }).then((res) => res.data),

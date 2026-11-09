@@ -96,8 +96,12 @@
               dense
               no-caps
               color="primary"
-              :label="props.row.status_code === 'DRAFT' ? 'Uredi' : 'Otvori'"
-              :to="`/zahtjevi/${props.row.id_purchase_request}`"
+              :label="actionLabels[props.row.status_code] ?? 'Otvori'"
+              :to="
+                actionLabels[props.row.status_code]
+                  ? `/zahtjevi/${props.row.id_purchase_request}/uredi`
+                  : `/zahtjevi/${props.row.id_purchase_request}`
+              "
             />
           </q-td>
         </template>
@@ -177,6 +181,12 @@ const statusColors = {
   RECEIVED: 'teal-8',
   CLOSED: 'grey-8',
   REJECTED: 'red-8',
+}
+
+// nacrt i zahtjev vracen na dopunu otvaraju se odmah u obrascu
+const actionLabels = {
+  DRAFT: 'Uredi',
+  NEEDS_INFO: 'Dopuni',
 }
 
 const columns = [
